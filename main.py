@@ -18,18 +18,18 @@ circuit = Circuit(
     state=STATES.generate_zero_n_qubit_state(4),
     gates=[
 
-        CircuitGate(GATES.X, np.array([2])),
-        # CircuitGate(GATES.Z, np.array([2])),
+        CircuitGate(GATES.X, target_qubit=2),
+        CircuitGate(GATES.init_Rx(np.pi / 4), target_qubit=2),
         # CircuitGate(GATES.Y, np.array([0])),
         # CircuitGate(GATES.X, np.array([1])),
         #
-        CircuitGate(GATES.H, np.array([2])),
-        CircuitGate(GATES.H, np.array([0])),
+        CircuitGate(GATES.H, target_qubit=2),
+        CircuitGate(GATES.H, target_qubit=0),
 
-        CircuitGate(GATES.CNOT, target_qubits=np.array([0]), control_qubits=np.array([2])),  # control, target
-        CircuitGate(GATES.CNOT, target_qubits=np.array([1]), control_qubits=np.array([2])),  # control, target
-        CircuitGate(GATES.CNOT, target_qubits=np.array([2]), control_qubits=np.array([1])),  # control, target
-        CircuitGate(GATES.CNOT, target_qubits=np.array([3]), control_qubits=np.array([0])),  # control, target
+        CircuitGate(GATES.CNOT, target_qubit=0, control_qubit=2),
+        CircuitGate(GATES.CNOT, target_qubit=1, control_qubit=2),
+        CircuitGate(GATES.CNOT, target_qubit=2, control_qubit=1),
+        CircuitGate(GATES.CNOT, target_qubit=3, control_qubit=0)
 
 
 
@@ -52,6 +52,7 @@ print(circuit.state.measure_qubit(0))
 print(circuit.state)
 print(circuit.state.measure_qubit(3))
 print(circuit.state)
+print(circuit.state.get_probabilities_str())
 
 
 

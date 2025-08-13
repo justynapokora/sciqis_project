@@ -14,19 +14,31 @@ class Gate:
 @dataclass
 class CircuitGate:
     gate: Gate
-    target_qubits: np.ndarray
-    control_qubits: np.ndarray = field(default_factory=lambda: np.array([]))
+    target_qubit: int
+    control_qubit: int | None = None
 
     def __post_init__(self):
-        # Ensure target_qubits and is always a 1D numpy array
-        self.target_qubits = np.atleast_1d(self.target_qubits)
 
         # Validate the number of target qubits matches gate's definition
-        if (len(self.target_qubits) + len(self.control_qubits)) != self.gate.num_of_qubits:
+        if self.target_qubit is None:
             raise ValueError(
                 f"Gate '{self.gate}' requires {self.gate.num_of_qubits} qubit(s), "
-                f"but got {len(self.target_qubits) + len(self.control_qubits)}"
+                f"but no target qubit was defined"
             )
+
+        if self.control_qubit is None:
+            if self.gate.num_of_qubits is not 1:
+                raise ValueError(
+                    f"Gate '{self.gate}' requires {self.gate.num_of_qubits} qubit(s), "
+                    f"but no control qubit was defined"
+                )
+
+        else:
+            if self.gate.num_of_qubits is not 2:
+                raise ValueError(
+                    f"Gate '{self.gate}' requires {self.gate.num_of_qubits} qubit(s), "
+                    f"but two qubits - target and control - are defined"
+                )
 
 
 class Gates:
@@ -140,7 +152,7 @@ class Gates:
         cos = np.cos(theta/2)
 
         return Gate(
-            name="T",
+            name=f"Rx({theta})",
             num_of_qubits=1,
             target_qubit_matrix=np.array([
                 [cos, -1j * sin],
@@ -154,7 +166,7 @@ class Gates:
         cos = np.cos(theta / 2)
 
         return Gate(
-            name="T",
+            name=f"Ry({theta})",
             num_of_qubits=1,
             target_qubit_matrix=np.array([
                 [cos, -sin],
@@ -165,12 +177,31 @@ class Gates:
     @staticmethod
     def init_Rz(theta) -> Gate:
         return Gate(
-            name="T",
+            name=f"Rz({theta})",
             num_of_qubits=1,
             target_qubit_matrix=np.array([
                 [np.exp(-1j * theta / 2), 0],
                 [0, np.exp(1j * theta / 2)]
             ]).astype(complex)
+        )
+
+    @staticmethod
+    def init_Rk(k) -> Gate:  # dyadic rational phase gate (Fourier transform)
+        return Gate(
+            name=f"R{k}",
+            num_of_qubits=1,
+            target_qubit_matrix=np.array([
+                [1, 0],
+                [0, np.exp(1j * 2 * np.pi / (2**k))]
+            ]).astype(complex)
+        )
+
+    @staticmethod
+    def init_U(gate_matrix: np.ndarray) -> Gate:
+        return Gate(
+            name=f"U{gate_matrix.tolist()}",
+            num_of_qubits=1,
+            target_qubit_matrix=gate_matrix.astype(complex)
         )
 
     ### two qubits
@@ -189,6 +220,51 @@ class Gates:
             name="CZ",
             num_of_qubits=2,
             target_qubit_matrix=self.Z.target_qubit_matrix,
+            control_qubit_matrix_0=self.P0_matrix,
+            control_qubit_matrix_1=self.P1_matrix
+        )
+
+    def init_CRx(self, theta) -> Gate:
+        return Gate(
+            name=f"CRx({theta})",
+            num_of_qubits=2,
+            target_qubit_matrix=self.init_Rx(theta).target_qubit_matrix,
+            control_qubit_matrix_0=self.P0_matrix,
+            control_qubit_matrix_1=self.P1_matrix
+        )
+
+    def init_CRy(self, theta) -> Gate:
+        return Gate(
+            name=f"CRy({theta})",
+            num_of_qubits=2,
+            target_qubit_matrix=self.init_Ry(theta).target_qubit_matrix,
+            control_qubit_matrix_0=self.P0_matrix,
+            control_qubit_matrix_1=self.P1_matrix
+        )
+
+    def init_CRz(self, theta) -> Gate:
+        return Gate(
+            name=f"CRz({theta})",
+            num_of_qubits=2,
+            target_qubit_matrix=self.init_Rz(theta).target_qubit_matrix,
+            control_qubit_matrix_0=self.P0_matrix,
+            control_qubit_matrix_1=self.P1_matrix
+        )
+
+    def init_CRk(self, k: int) -> Gate:
+        return Gate(
+            name=f"CR{k}",
+            num_of_qubits=2,
+            target_qubit_matrix=self.init_Rk(k).target_qubit_matrix,
+            control_qubit_matrix_0=self.P0_matrix,
+            control_qubit_matrix_1=self.P1_matrix
+        )
+
+    def init_CU(self, gate_matrix: np.ndarray) -> Gate:
+        return Gate(
+            name=f"CU{gate_matrix.tolist()}",
+            num_of_qubits=2,
+            target_qubit_matrix=gate_matrix.astype(complex),
             control_qubit_matrix_0=self.P0_matrix,
             control_qubit_matrix_1=self.P1_matrix
         )

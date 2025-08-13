@@ -31,7 +31,9 @@ class Circuit:
                     )
 
     def check_gate_validity(self, g: CircuitGate):
-        max_qubit_val = np.max(np.concatenate((g.target_qubits, g.control_qubits)))
+        max_qubit_val = g.target_qubit
+        if g.control_qubit is not None:
+            max_qubit_val = np.max([g.target_qubit, g.control_qubit])
 
         if max_qubit_val > self.state.num_of_qubits:
             raise ValueError(
@@ -46,7 +48,7 @@ class Circuit:
     def apply_one_qubit_gate(self, g: CircuitGate):
         # gates = np.full(self.state.num_of_qubits, GATES.I.target_qubit_matrix, dtype=object)
         gates = [GATES.I.target_qubit_matrix.copy() for _ in range(self.state.num_of_qubits)]
-        gates[g.target_qubits[0]] = g.gate.target_qubit_matrix
+        gates[g.target_qubit] = g.gate.target_qubit_matrix
 
         circuit_gate = np.array([[1]], dtype=complex)
         for gate in gates:
@@ -58,9 +60,9 @@ class Circuit:
         control_zero_gates = [GATES.I.target_qubit_matrix.copy() for _ in range(self.state.num_of_qubits)]
         control_one_gates = [GATES.I.target_qubit_matrix.copy() for _ in range(self.state.num_of_qubits)]
 
-        control_zero_gates[g.control_qubits[0]] = g.gate.control_qubit_matrix_0
-        control_one_gates[g.control_qubits[0]] = g.gate.control_qubit_matrix_1
-        control_one_gates[g.target_qubits[0]] = g.gate.target_qubit_matrix
+        control_zero_gates[g.control_qubit] = g.gate.control_qubit_matrix_0
+        control_one_gates[g.control_qubit] = g.gate.control_qubit_matrix_1
+        control_one_gates[g.target_qubit] = g.gate.target_qubit_matrix
 
         circuit_zero_gate = np.array([[1]], dtype=complex)
         for gate in control_zero_gates:

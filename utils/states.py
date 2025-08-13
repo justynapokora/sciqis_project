@@ -47,6 +47,19 @@ class State:
 
         return " + ".join(terms) if terms else "0"
 
+    def get_probabilities_str(self):
+        flat = self.qubit_vector.ravel()
+        lines = []
+
+        for i, amplitude in enumerate(flat):
+            prob = abs(amplitude) ** 2
+            if not np.isclose(prob, 0):  # skip zero-probability states
+                basis_state = format(i, f'0{self.num_of_qubits}b')
+                prob_str = f"{prob:.3f}"  # keep 3 decimal places
+                lines.append(f"P( |{basis_state}⟩ ) = {prob_str}")
+
+        return "\n".join(lines) if lines else "P=0"
+
     def normalize_state(self):
         norm = np.linalg.norm(self.qubit_vector)
         return self.qubit_vector if norm == 0 else self.qubit_vector / norm
