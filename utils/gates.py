@@ -1,6 +1,17 @@
 import numpy as np
 from dataclasses import dataclass, field
 
+ONE_QUBIT_FIXED_GATE_SET = np.array(["I", "X", "Y", "Z", "H", "P", "T"])
+TWO_QUBITS_FIXED_GATE_SET = np.array(["CNOT", "CZ"])
+FIXED_GATE_SET = np.concatenate([ONE_QUBIT_FIXED_GATE_SET, TWO_QUBITS_FIXED_GATE_SET])
+
+ONE_QUBIT_PARAMETRISED_GATE_SET = np.array(["Rx", "Ry", "Rz"])
+TWO_QUBITS_PARAMETRISED_GATE_SET = np.array(["CRx", "CRy", "CRz"])
+PARAMETRISED_GATE_SET = np.concatenate([ONE_QUBIT_PARAMETRISED_GATE_SET, TWO_QUBITS_PARAMETRISED_GATE_SET])
+
+ONE_QUBIT_GATES = np.concatenate([ONE_QUBIT_FIXED_GATE_SET, ONE_QUBIT_PARAMETRISED_GATE_SET])
+TWO_QUBITS_GATES = np.concatenate([TWO_QUBITS_FIXED_GATE_SET, TWO_QUBITS_PARAMETRISED_GATE_SET])
+
 
 @dataclass
 class Gate:

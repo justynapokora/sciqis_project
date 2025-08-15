@@ -1,7 +1,12 @@
 import numpy as np
-from utils.gates import Gates, CircuitGate, GATES
+from utils.gates import *
 from utils.states import State, STATES
 from utils.circuit import Circuit
+
+from utils.draw_circuit import print_circuit_gates_info, draw_circuit
+
+from utils.random_circuits import sample_random_gates, resolve_parameters
+
 
 np.set_printoptions(precision=3, suppress=True)
 
@@ -14,46 +19,70 @@ np.set_printoptions(precision=3, suppress=True)
 
 ##### example 1
 #
+# circuit = Circuit(
+#     state=STATES.generate_zero_n_qubit_state(4),
+#     gates=[
+#
+#         CircuitGate(GATES.X, target_qubit=2),
+#         CircuitGate(GATES.init_Rx(np.pi / 4), target_qubit=2),
+#         # CircuitGate(GATES.Y, np.array([0])),
+#         # CircuitGate(GATES.X, np.array([1])),
+#         #
+#         CircuitGate(GATES.H, target_qubit=2),
+#         CircuitGate(GATES.H, target_qubit=0),
+#
+#         CircuitGate(GATES.CNOT, target_qubit=0, control_qubit=2),
+#         CircuitGate(GATES.CNOT, target_qubit=1, control_qubit=2),
+#         CircuitGate(GATES.CNOT, target_qubit=2, control_qubit=1),
+#         CircuitGate(GATES.CNOT, target_qubit=3, control_qubit=0)
+#
+#
+#
+#     ]
+# )
+#
+# circuit.simulate_circuit()
+#
+# # print(f" res : {circuit.state.qubit_vector}")
+# print(f" res: {circuit.state}")
+# # print(f"measurement: {circuit.state.measure_all()}")
+#
+#
+# print(circuit.state.measure_qubit(1))
+# print(circuit.state)
+# print(circuit.state.measure_qubit(2))
+# print(circuit.state)
+#
+# print(circuit.state.measure_qubit(0))
+# print(circuit.state)
+# print(circuit.state.measure_qubit(3))
+# print(circuit.state)
+# print(circuit.state.get_probabilities_str())
+#
+#
+#
+
+
+sampled_circuit_gates = sample_random_gates(4,
+                                            [
+                                                ("1q", 1, ONE_QUBIT_FIXED_GATE_SET),
+                                                ("1q", 1, ONE_QUBIT_PARAMETRISED_GATE_SET),
+                                                ("2q", 1, TWO_QUBITS_PARAMETRISED_GATE_SET),
+                                                ("mixed", 1, PARAMETRISED_GATE_SET),
+                                            ])
+
+# print_circuit_gates_info(sampled_circuit_gates)
+draw_circuit(sampled_circuit_gates, 4, "circuit_qutip.png")
+resolve_parameters(sampled_circuit_gates)
+# print_circuit_gates_info(sampled_circuit_gates)
+
 circuit = Circuit(
     state=STATES.generate_zero_n_qubit_state(4),
-    gates=[
-
-        CircuitGate(GATES.X, target_qubit=2),
-        CircuitGate(GATES.init_Rx(np.pi / 4), target_qubit=2),
-        # CircuitGate(GATES.Y, np.array([0])),
-        # CircuitGate(GATES.X, np.array([1])),
-        #
-        CircuitGate(GATES.H, target_qubit=2),
-        CircuitGate(GATES.H, target_qubit=0),
-
-        CircuitGate(GATES.CNOT, target_qubit=0, control_qubit=2),
-        CircuitGate(GATES.CNOT, target_qubit=1, control_qubit=2),
-        CircuitGate(GATES.CNOT, target_qubit=2, control_qubit=1),
-        CircuitGate(GATES.CNOT, target_qubit=3, control_qubit=0)
-
-
-
-    ]
+    gates=sampled_circuit_gates
 )
 
 circuit.simulate_circuit()
 
-# print(f" res : {circuit.state.qubit_vector}")
+
 print(f" res: {circuit.state}")
-# print(f"measurement: {circuit.state.measure_all()}")
-
-
-print(circuit.state.measure_qubit(1))
-print(circuit.state)
-print(circuit.state.measure_qubit(2))
-print(circuit.state)
-
-print(circuit.state.measure_qubit(0))
-print(circuit.state)
-print(circuit.state.measure_qubit(3))
-print(circuit.state)
-print(circuit.state.get_probabilities_str())
-
-
-
-
+print(f"measurement: {circuit.state.measure_all()}")

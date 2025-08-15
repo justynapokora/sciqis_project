@@ -16,7 +16,6 @@ def print_circuit_gates_info(circuit_gates: list[CircuitGate]):
 
 # qc.add_measurement("M0", targets=1, classical_store=0)
 
-
 def draw_circuit(circuit_gates, num_qubits, filepath):
     qc = QubitCircuit(num_qubits)
 

@@ -2,19 +2,7 @@ import numpy as np
 
 from utils.circuit import Circuit
 from utils.states import STATES, State
-from utils.gates import GATES, CircuitGate, Gate
-from utils.draw_circuit import print_circuit_gates_info, draw_circuit
-
-ONE_QUBIT_FIXED_GATE_SET = np.array(["I", "X", "Y", "Z", "H", "P", "T"])
-TWO_QUBITS_FIXED_GATE_SET = np.array(["CNOT", "CZ"])
-FIXED_GATE_SET = np.concatenate([ONE_QUBIT_FIXED_GATE_SET, TWO_QUBITS_FIXED_GATE_SET])
-
-ONE_QUBIT_PARAMETRISED_GATE_SET = np.array(["Rx", "Ry", "Rz"])
-TWO_QUBITS_PARAMETRISED_GATE_SET = np.array(["CRx", "CRy", "CRz"])
-PARAMETRISED_GATE_SET = np.concatenate([ONE_QUBIT_PARAMETRISED_GATE_SET, TWO_QUBITS_PARAMETRISED_GATE_SET])
-
-ONE_QUBIT_GATES = np.concatenate([ONE_QUBIT_FIXED_GATE_SET, ONE_QUBIT_PARAMETRISED_GATE_SET])
-TWO_QUBITS_GATES = np.concatenate([TWO_QUBITS_FIXED_GATE_SET, TWO_QUBITS_PARAMETRISED_GATE_SET])
+from utils.gates import GATES, CircuitGate, Gate, TWO_QUBITS_GATES, ONE_QUBIT_GATES
 
 
 def sample_theta(rng):
@@ -166,22 +154,3 @@ def resolve_parameters(circuit_gates, seed: int | None = None):
 
             theta = rng.uniform(0.0, 2.0*np.pi)
             cg.gate = init_function(theta)
-
-
-sampled_circuit_gates = sample_random_gates(4,
-                                            [
-                                                ("1q", 1, ONE_QUBIT_FIXED_GATE_SET),
-                                                ("1q", 1, ONE_QUBIT_PARAMETRISED_GATE_SET),
-                                                ("2q", 1, TWO_QUBITS_PARAMETRISED_GATE_SET),
-                                                ("mixed", 1, PARAMETRISED_GATE_SET),
-
-                                            ])
-
-
-print_circuit_gates_info(sampled_circuit_gates)
-draw_circuit(sampled_circuit_gates, 4, "circuit_qutip.png")
-
-
-sampled_gates_resolved = resolve_parameters(sampled_circuit_gates)
-print_circuit_gates_info(sampled_circuit_gates)
-
