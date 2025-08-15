@@ -27,14 +27,14 @@ class CircuitGate:
             )
 
         if self.control_qubit is None:
-            if self.gate.num_of_qubits is not 1:
+            if self.gate.num_of_qubits != 1:
                 raise ValueError(
                     f"Gate '{self.gate}' requires {self.gate.num_of_qubits} qubit(s), "
                     f"but no control qubit was defined"
                 )
 
         else:
-            if self.gate.num_of_qubits is not 2:
+            if self.gate.num_of_qubits != 2:
                 raise ValueError(
                     f"Gate '{self.gate}' requires {self.gate.num_of_qubits} qubit(s), "
                     f"but two qubits - target and control - are defined"
@@ -50,8 +50,13 @@ class Gates:
         self.Y = self.init_Y()
         self.Z = self.init_Z()
         self.H = self.init_H()
-        self.S = self.init_S()
+        self.P = self.init_P()
         self.T = self.init_T()
+
+        # parametrized - no matrix defined
+        self.Rx = self.init_Rx()
+        self.Ry = self.init_Ry()
+        self.Rz = self.init_Rz()
 
         # two qubit CNOT CZ
 
@@ -67,6 +72,41 @@ class Gates:
 
         self.CNOT = self.init_CNOT()
         self.CZ = self.init_CZ()
+
+        self.CRx = self.init_CRx()
+        self.CRy = self.init_CRy()
+        self.CRz = self.init_CRz()
+
+        self.GATE_DICT = {
+            "I": self.I,
+            "X": self.X,
+            "Y": self.Y,
+            "Z": self.Z,
+            "H": self.H,
+            "P": self.P,
+            "T": self.T,
+
+            "Rx": self.Rx,
+            "Ry": self.Ry,
+            "Rz": self.Rz,
+
+            "CNOT": self.CNOT,
+            "CZ": self.CZ,
+
+            "CRx": self.CRx,
+            "CRy": self.CRy,
+            "CRz": self.CRz,
+        }
+
+        self.INIT_PARAMETRIZED_GATE_FUNC_DICT = {
+            "Rx": self.init_Rx,
+            "Ry": self.init_Ry,
+            "Rz": self.init_Rz,
+
+            "CRx": self.init_CRx,
+            "CRy": self.init_CRy,
+            "CRz": self.init_CRz,
+        }
 
     #### Definitions
     @staticmethod
@@ -125,9 +165,9 @@ class Gates:
         )
 
     @staticmethod
-    def init_S() -> Gate:
+    def init_P() -> Gate:
         return Gate(
-            name="S",
+            name="P",
             num_of_qubits=1,
             target_qubit_matrix=np.array([
                 [1, 0],
@@ -147,42 +187,70 @@ class Gates:
         )
 
     @staticmethod
-    def init_Rx(theta) -> Gate:
-        sin = np.sin(theta/2)
-        cos = np.cos(theta/2)
-
-        return Gate(
-            name=f"Rx({theta})",
-            num_of_qubits=1,
-            target_qubit_matrix=np.array([
-                [cos, -1j * sin],
-                [-1j * sin, cos]
-            ]).astype(complex)
-        )
-
-    @staticmethod
-    def init_Ry(theta) -> Gate:
+    def _rx_matrix(theta):
         sin = np.sin(theta / 2)
         cos = np.cos(theta / 2)
-
-        return Gate(
-            name=f"Ry({theta})",
-            num_of_qubits=1,
-            target_qubit_matrix=np.array([
-                [cos, -sin],
-                [sin, cos]
-            ]).astype(complex)
-        )
+        return np.array([
+            [cos, -1j * sin],
+            [-1j * sin, cos]
+        ]).astype(complex)
 
     @staticmethod
-    def init_Rz(theta) -> Gate:
+    def _ry_matrix(theta):
+        sin = np.sin(theta / 2)
+        cos = np.cos(theta / 2)
+        return np.array([
+            [cos, -sin],
+            [sin, cos]
+        ]).astype(complex)
+
+    @staticmethod
+    def _rz_matrix(theta):
+        return np.array([
+            [np.exp(-1j * theta / 2), 0],
+            [0, np.exp(1j * theta / 2)]
+        ]).astype(complex)
+
+    def init_Rx(self, theta: float | None = None) -> Gate:
+        if theta is None:
+            name = "Rx"
+            matrix = None
+        else:
+            name = f"Rx({theta:.3f})"
+            matrix = self._rx_matrix(theta)
+
         return Gate(
-            name=f"Rz({theta})",
+            name=name,
             num_of_qubits=1,
-            target_qubit_matrix=np.array([
-                [np.exp(-1j * theta / 2), 0],
-                [0, np.exp(1j * theta / 2)]
-            ]).astype(complex)
+            target_qubit_matrix=matrix
+        )
+
+    def init_Ry(self, theta: float | None = None) -> Gate:
+        if theta is None:
+            name = "Ry"
+            matrix = None
+        else:
+            name = f"Ry({theta:.3f})"
+            matrix = self._ry_matrix(theta)
+
+        return Gate(
+            name=name,
+            num_of_qubits=1,
+            target_qubit_matrix=matrix
+        )
+
+    def init_Rz(self, theta: float | None = None) -> Gate:
+        if theta is None:
+            name = "Rz"
+            matrix = None
+        else:
+            name = f"Rz({theta:.3f})"
+            matrix = self._rz_matrix(theta)
+
+        return Gate(
+            name=name,
+            num_of_qubits=1,
+            target_qubit_matrix=matrix
         )
 
     @staticmethod
@@ -224,29 +292,50 @@ class Gates:
             control_qubit_matrix_1=self.P1_matrix
         )
 
-    def init_CRx(self, theta) -> Gate:
+    def init_CRx(self, theta: float | None = None) -> Gate:
+        if theta is None:
+            name = "CRx"
+            matrix = None
+        else:
+            name = f"CRx({theta:.3f})"
+            matrix = self._rx_matrix(theta)
+
         return Gate(
-            name=f"CRx({theta})",
+            name=name,
             num_of_qubits=2,
-            target_qubit_matrix=self.init_Rx(theta).target_qubit_matrix,
+            target_qubit_matrix=matrix,
             control_qubit_matrix_0=self.P0_matrix,
             control_qubit_matrix_1=self.P1_matrix
         )
 
-    def init_CRy(self, theta) -> Gate:
+    def init_CRy(self, theta: float | None = None) -> Gate:
+        if theta is None:
+            name = "CRy"
+            matrix = None
+        else:
+            name = f"CRy({theta:.3f})"
+            matrix = self._ry_matrix(theta)
+
         return Gate(
-            name=f"CRy({theta})",
+            name=name,
             num_of_qubits=2,
-            target_qubit_matrix=self.init_Ry(theta).target_qubit_matrix,
+            target_qubit_matrix=matrix,
             control_qubit_matrix_0=self.P0_matrix,
             control_qubit_matrix_1=self.P1_matrix
         )
 
-    def init_CRz(self, theta) -> Gate:
+    def init_CRz(self, theta: float | None = None) -> Gate:
+        if theta is None:
+            name = "CRz"
+            matrix = None
+        else:
+            name = f"CRz({theta:.3f})"
+            matrix = self._rz_matrix(theta)
+
         return Gate(
-            name=f"CRz({theta})",
+            name=name,
             num_of_qubits=2,
-            target_qubit_matrix=self.init_Rz(theta).target_qubit_matrix,
+            target_qubit_matrix=matrix,
             control_qubit_matrix_0=self.P0_matrix,
             control_qubit_matrix_1=self.P1_matrix
         )
@@ -271,3 +360,4 @@ class Gates:
 
 
 GATES = Gates()
+
