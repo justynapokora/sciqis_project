@@ -3,9 +3,9 @@ from utils.gates import *
 from utils.states import State, STATES
 from utils.circuit import Circuit
 
-from utils.draw_circuit import print_circuit_gates_info, draw_circuit
+from utils.draw_circuit import print_circuit_gates_info, save_circuit_drawing
 
-from utils.random_circuits import sample_random_gates, resolve_parameters
+from utils.random_gates import sample_random_gates, resolve_parameters
 
 
 np.set_printoptions(precision=3, suppress=True)
@@ -67,13 +67,15 @@ sampled_circuit_gates = sample_random_gates(4,
                                             [
                                                 ("1q", 1, ONE_QUBIT_FIXED_GATE_SET),
                                                 ("1q", 1, ONE_QUBIT_PARAMETRISED_GATE_SET),
-                                                ("2q", 1, TWO_QUBITS_PARAMETRISED_GATE_SET),
+                                                ("2q", 1, TWO_QUBITS_GATES),
                                                 ("mixed", 1, PARAMETRISED_GATE_SET),
                                             ])
 
-# print_circuit_gates_info(sampled_circuit_gates)
-draw_circuit(sampled_circuit_gates, 4, "circuit_qutip.png")
+print_circuit_gates_info(sampled_circuit_gates)
+save_circuit_drawing(sampled_circuit_gates, 4, "circuit.png")
+
 resolve_parameters(sampled_circuit_gates)
+# draw_circuit(sampled_circuit_gates, 4, "circuit.png")
 # print_circuit_gates_info(sampled_circuit_gates)
 
 circuit = Circuit(
@@ -82,7 +84,5 @@ circuit = Circuit(
 )
 
 circuit.simulate_circuit()
-
-
 print(f" res: {circuit.state}")
 print(f"measurement: {circuit.state.measure_all()}")

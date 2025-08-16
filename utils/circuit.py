@@ -2,33 +2,34 @@ from __future__ import annotations
 
 import numpy as np
 
-from utils.gates import Gate, CircuitGate, GATES
+from utils.gates import CircuitGate, GATES
 from utils.states import State
 
 
 class Circuit:
-    def __init__(self, state: State, gates: list[CircuitGate]):
+    def __init__(self, state: State, gates: list[list[CircuitGate]]):
         self.initial_state = state
         self.state: State = state
-        self.gates: list[CircuitGate] = gates
+        self.gates: list[list[CircuitGate]] = gates
         self.measured_qubits: list = []
 
     def simulate_circuit(self):
         print(f"initial state ({self.initial_state.num_of_qubits} qubit(s)): {self.initial_state}")
 
-        for g in self.gates:
-            self.check_gate_validity(g)
+        for layer in self.gates:
+            for g in layer:
+                self.check_gate_validity(g)
 
-            match g.gate.num_of_qubits:
-                case 1:
-                    self.apply_one_qubit_gate(g)
-                case 2:
-                    self.apply_two_qubit_gate(g)
-                case default:
-                    raise ValueError(
-                        f"Incorrect number of qubits for gate: {g}, "
-                        f"allowed number of qubits: 1, 2"
-                    )
+                match g.gate.num_of_qubits:
+                    case 1:
+                        self.apply_one_qubit_gate(g)
+                    case 2:
+                        self.apply_two_qubit_gate(g)
+                    case default:
+                        raise ValueError(
+                            f"Incorrect number of qubits for gate: {g}, "
+                            f"allowed number of qubits: 1, 2"
+                        )
 
     def check_gate_validity(self, g: CircuitGate):
         max_qubit_val = g.target_qubit

@@ -1,7 +1,7 @@
 import numpy as np
 from dataclasses import dataclass, field
 
-ONE_QUBIT_FIXED_GATE_SET = np.array(["I", "X", "Y", "Z", "H", "P", "T"])
+ONE_QUBIT_FIXED_GATE_SET = np.array(["I", "X", "Y", "Z", "H", "S", "T"])
 TWO_QUBITS_FIXED_GATE_SET = np.array(["CNOT", "CZ"])
 FIXED_GATE_SET = np.concatenate([ONE_QUBIT_FIXED_GATE_SET, TWO_QUBITS_FIXED_GATE_SET])
 
@@ -61,7 +61,7 @@ class Gates:
         self.Y = self.init_Y()
         self.Z = self.init_Z()
         self.H = self.init_H()
-        self.P = self.init_P()
+        self.S = self.init_S()
         self.T = self.init_T()
 
         # parametrized - no matrix defined
@@ -94,7 +94,7 @@ class Gates:
             "Y": self.Y,
             "Z": self.Z,
             "H": self.H,
-            "P": self.P,
+            "S": self.S,
             "T": self.T,
 
             "Rx": self.Rx,
@@ -176,9 +176,9 @@ class Gates:
         )
 
     @staticmethod
-    def init_P() -> Gate:
+    def init_S() -> Gate:
         return Gate(
-            name="P",
+            name="S",
             num_of_qubits=1,
             target_qubit_matrix=np.array([
                 [1, 0],
