@@ -7,8 +7,10 @@ from utils.draw_circuit import print_circuit_gates_info, save_circuit_drawing
 
 from utils.random_gates import sample_random_gates, resolve_parameters
 
-
 np.set_printoptions(precision=3, suppress=True)
+
+# define rng
+RNG = np.random.default_rng(4242)
 
 # state = STATES.generate_state([
 #     STATES.zero,
@@ -63,18 +65,19 @@ np.set_printoptions(precision=3, suppress=True)
 #
 
 
-sampled_circuit_gates = sample_random_gates(4,
-                                            [
+sampled_circuit_gates = sample_random_gates(num_of_qubits=4,
+                                            layers=[
                                                 ("1q", 1, ONE_QUBIT_FIXED_GATE_SET),
                                                 ("1q", 1, ONE_QUBIT_PARAMETRISED_GATE_SET),
                                                 ("2q", 1, TWO_QUBITS_GATES),
                                                 ("mixed", 1, PARAMETRISED_GATE_SET),
-                                            ])
+                                            ],
+                                            rng=RNG)
 
 print_circuit_gates_info(sampled_circuit_gates)
 save_circuit_drawing(sampled_circuit_gates, 4, "circuit.png")
 
-resolve_parameters(sampled_circuit_gates)
+resolve_parameters(sampled_circuit_gates, RNG)
 # draw_circuit(sampled_circuit_gates, 4, "circuit.png")
 # print_circuit_gates_info(sampled_circuit_gates)
 
@@ -85,4 +88,4 @@ circuit = Circuit(
 
 circuit.simulate_circuit()
 print(f" res: {circuit.state}")
-print(f"measurement: {circuit.state.measure_all()}")
+print(f"measurement: {circuit.state.measure_all(rng=RNG)}")

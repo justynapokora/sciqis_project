@@ -1,8 +1,6 @@
 import numpy as np
-# from dataclasses import dataclass
 
 
-# @dataclass
 class State:
     def __init__(self, qubit_vector: np.ndarray):
         # Ensure ndarray with complex dtype
@@ -64,8 +62,9 @@ class State:
         norm = np.linalg.norm(self.qubit_vector)
         return self.qubit_vector if norm == 0 else self.qubit_vector / norm
 
-    def measure_all(self, num_shots=1):
-        rng = np.random.default_rng()
+    def measure_all(self, num_of_measurements=1, rng: np.random.Generator | None = None):
+        if not rng:
+            rng = np.random.default_rng()
 
         # Flatten to 1D and compute probabilities
         flat = self.qubit_vector.ravel()
@@ -76,13 +75,16 @@ class State:
             for i in range(flat.size)
         ]
 
-        return rng.choice(basis_states, size=num_shots, p=probs)
+        return rng.choice(basis_states, size=num_of_measurements, p=probs)
 
-    def measure_qubit(self, qubit_index):
+    def measure_qubit(self, qubit_index, num_of_measurements=1, rng: np.random.Generator | None = None):
         """
         Measures a single qubit (logical index) in the computational basis.
         Returns: outcome (0 or 1), and the new collapsed state vector.
         """
+        if not rng:
+            rng = np.random.default_rng()
+
         self.measured_qubits.append(qubit_index)
 
         proj_0 = np.zeros_like(self.qubit_vector)
@@ -102,8 +104,7 @@ class State:
         prob_0 = np.sum(np.abs(proj_0) ** 2)
         prob_1 = np.sum(np.abs(proj_1) ** 2)
 
-        rng = np.random.default_rng()
-        outcome = rng.choice([0, 1], p=[prob_0, prob_1])
+        outcome = rng.choice([0, 1], size=num_of_measurements, p=[prob_0, prob_1])
 
         # Collapse state
         if outcome == 0:

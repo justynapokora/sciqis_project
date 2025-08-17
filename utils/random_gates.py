@@ -124,10 +124,11 @@ def sample_mixed_gates(rng, num_of_qubits: int, repeats: int, gate_set: np.ndarr
 def sample_random_gates(
         num_of_qubits: int,
         layers: list,  # e.g. [(type = 1q/2q/mixed, repeats, gate_set), ("mixed", 1, PARAMETRISED_GATE_SET)]
-        rng_seed: int | None = None
+        rng: np.random.Generator | None = None
 
 ):
-    rng = np.random.default_rng(rng_seed)
+    if not rng:
+        rng = np.random.default_rng()
 
     circuit_gates = []
 
@@ -152,8 +153,9 @@ def sample_random_gates(
     return circuit_gates
 
 
-def resolve_parameters(circuit_gates: list[list[CircuitGate]], seed: int | None = None):
-    rng = np.random.default_rng(seed)
+def resolve_parameters(circuit_gates: list[list[CircuitGate]], rng: np.random.Generator | None = None):
+    if not rng:
+        rng = np.random.default_rng()
 
     for layer in circuit_gates:
         for cg in layer:
