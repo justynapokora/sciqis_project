@@ -1,5 +1,7 @@
 import numpy as np
-from utils.gates import *
+from utils.gates import ONE_QUBIT_FIXED_GATE_SET, TWO_QUBITS_FIXED_GATE_SET, FIXED_GATE_SET, \
+    ONE_QUBIT_PARAMETRISED_GATE_SET, TWO_QUBITS_PARAMETRISED_GATE_SET, PARAMETRISED_GATE_SET, \
+    ONE_QUBIT_GATES, TWO_QUBITS_GATES
 from utils.states import State, STATES
 from utils.circuit import Circuit
 
@@ -23,7 +25,7 @@ RNG = np.random.default_rng(4242)
 #
 # circuit = Circuit(
 #     state=STATES.generate_zero_n_qubit_state(4),
-#     gates=[
+#     gates=[[
 #
 #         CircuitGate(GATES.X, target_qubit=2),
 #         CircuitGate(GATES.init_Rx(np.pi / 4), target_qubit=2),
@@ -40,7 +42,7 @@ RNG = np.random.default_rng(4242)
 #
 #
 #
-#     ]
+#     ]]
 # )
 #
 # circuit.simulate_circuit()
@@ -77,7 +79,7 @@ sampled_circuit_gates = sample_random_gates(num_of_qubits=4,
 print_circuit_gates_info(sampled_circuit_gates)
 save_circuit_drawing(sampled_circuit_gates, 4, "circuit.png")
 
-resolve_parameters(sampled_circuit_gates, RNG)
+# resolve_parameters(sampled_circuit_gates, RNG)
 # draw_circuit(sampled_circuit_gates, 4, "circuit.png")
 # print_circuit_gates_info(sampled_circuit_gates)
 
@@ -88,4 +90,5 @@ circuit = Circuit(
 
 circuit.simulate_circuit()
 print(f" res: {circuit.state}")
+print(f" init state: {circuit.initial_state}")
 print(f"measurement: {circuit.state.measure_all(rng=RNG)}")

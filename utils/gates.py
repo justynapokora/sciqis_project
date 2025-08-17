@@ -119,6 +119,16 @@ class Gates:
             "CRz": self.init_CRz,
         }
 
+        self.INIT_PARAMETRIZED_GATE_MATRIX_FUNC_DICT = {
+            "Rx": self._rx_matrix,
+            "Ry": self._ry_matrix,
+            "Rz": self._rz_matrix,
+
+            "CRx": self._rx_matrix,
+            "CRy": self._ry_matrix,
+            "CRz": self._rz_matrix,
+        }
+
     #### Definitions
     @staticmethod
     def init_I() -> Gate:
