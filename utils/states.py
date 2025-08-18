@@ -67,6 +67,8 @@ class State:
         if not rng:
             rng = np.random.default_rng()
 
+        self.normalize_state()
+
         # Flatten to 1D and compute probabilities
         flat = self.qubit_vector.ravel()
         probs = np.abs(flat)**2
@@ -77,6 +79,50 @@ class State:
         ]
 
         return rng.choice(basis_states, size=num_of_measurements, p=probs)
+
+    def reset_qubit_to_zero(self, qubit: int):
+        """
+        Deterministically collapse 'qubit' to |0>.
+        - If there is support on the |0> subspace: project to it and renormalize
+          (same projection routine as in measure_qubit).
+        - If prob_0 == 0 (all weight on |1>): move amplitudes from |1> subspace
+          to the corresponding |0> indices (true reset), then renormalize.
+        """
+        # logical (top-to-bottom) -> physical bit position (little-endian)
+        physical_index = self.num_of_qubits - 1 - qubit
+
+        # Build projectors onto bit=0 and bit=1 subspaces (same style as measure_qubit)
+        proj_0 = np.zeros_like(self.qubit_vector)
+        proj_1 = np.zeros_like(self.qubit_vector)
+
+        for i, amp in enumerate(self.qubit_vector):
+            bits = np.binary_repr(i, width=self.num_of_qubits)
+            if bits[physical_index] == '0':
+                proj_0[i] = amp
+            else:
+                proj_1[i] = amp
+
+        # Probabilities of each subspace
+        prob_0 = float(np.sum(np.abs(proj_0) ** 2))
+        prob_1 = float(np.sum(np.abs(proj_1) ** 2))
+
+        if prob_0 > 0.0:
+            # Collapse to |0> subspace (same as measuring outcome 0)
+            self.qubit_vector = proj_0 / np.sqrt(prob_0)
+            return
+
+        # Edge case: state fully in |1> subspace -> perform a true "reset"
+        # Move each amplitude from index with bit=1 to the same index with that bit cleared to 0
+        new_state = np.zeros_like(self.qubit_vector)
+        stride = 1 << physical_index  # 2^{physical_index}
+        for i, amp in enumerate(self.qubit_vector.ravel()):
+            if ((i >> physical_index) & 1) == 1:
+                j = i & (~stride)  # clear that bit to 0
+                new_state[j, 0] += amp  # accumulate if multiple map to same j
+        self.qubit_vector = new_state
+
+        # Normalize in-place for numerical safety
+        self.normalize_state()
 
     def measure_qubit(self, qubit_index, num_of_measurements=1, rng: np.random.Generator | None = None):
         """

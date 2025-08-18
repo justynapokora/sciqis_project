@@ -25,6 +25,7 @@ def random_pairs(rng, n: int) -> tuple[list[tuple[int, int]], int]:
     if n % 2 == 1:
         leftover = int(perm[-1])
 
+    # print(pairs, leftover)
     return pairs, leftover
 
 
@@ -63,7 +64,7 @@ def sample_2q_gates(rng, num_of_qubits: int, repeats: int, gate_set: np.ndarray)
             gate = GATES.GATE_DICT[gate_name]
             layer.append(CircuitGate(gate=gate, control_qubit=a, target_qubit=b))
 
-        if leftover:
+        if leftover is not None:
             layer.append(CircuitGate(gate=GATES.I, target_qubit=leftover))
 
         circuit_gates.append(layer)

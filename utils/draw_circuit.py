@@ -99,7 +99,7 @@ def build_qiskit_circuit(
                     raise ValueError(f"Unsupported gate: {name}")
 
                 touched_qubits.add(t)
-                if depolarizing_noise:
+                if depolarizing_noise and name != "I":
                     dc_targets.add(t)
 
             else:
