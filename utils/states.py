@@ -60,7 +60,8 @@ class State:
 
     def normalize_state(self):
         norm = np.linalg.norm(self.qubit_vector)
-        return self.qubit_vector if norm == 0 else self.qubit_vector / norm
+        if norm != 0:
+            self.qubit_vector /= norm
 
     def measure_all(self, num_of_measurements=1, rng: np.random.Generator | None = None):
         if not rng:

@@ -9,22 +9,23 @@ def sample_theta(rng):
     return rng.uniform(0.0, 2.0 * np.pi)
 
 
-def random_pairs(rng, n: int) -> list[tuple[int, int]]:
+def random_pairs(rng, n: int) -> tuple[list[tuple[int, int]], int]:
     """
     For n qubits, return ~2 partners for each qubit in one layer.
     - For even n: each qubit gets exactly 2 different partners.
-    - For odd n: some qubits will repeat a partner to fill out the list.
+    - For odd n: one qubit will be left out.
     """
-    pairs = []
-    for q in range(n):
-        # Pick two partners different from q
-        partners = rng.choice([p for p in range(n) if p != q], size=min(2, n - 1), replace=False)
-        for p in partners:
-            pair = (q, p)
-            # Avoid adding duplicate in reverse order
-            if (p, q) not in pairs:
-                pairs.append(pair)
-    return pairs
+    if n <= 1:
+        return []
+
+    perm = list(rng.permutation(n))
+    pairs = [(int(perm[i]), int(perm[i + 1])) for i in range(0, n - 1, 2)]
+
+    leftover = None
+    if n % 2 == 1:
+        leftover = int(perm[-1])
+
+    return pairs, leftover
 
 
 def sample_1q_gates(rng, num_of_qubits: int, repeats: int, gate_set: np.ndarray) -> list[list[CircuitGate]]:
@@ -54,13 +55,16 @@ def sample_2q_gates(rng, num_of_qubits: int, repeats: int, gate_set: np.ndarray)
 
     for _ in range(repeats):
         layer: list[CircuitGate] = []
-        pairs = random_pairs(rng, num_of_qubits)
+        pairs, leftover = random_pairs(rng, num_of_qubits)
         names = rng.choice(gate_set, size=len(pairs), replace=True)
 
         for (a, b), name in zip(pairs, names):
             gate_name = str(name)
             gate = GATES.GATE_DICT[gate_name]
             layer.append(CircuitGate(gate=gate, control_qubit=a, target_qubit=b))
+
+        if leftover:
+            layer.append(CircuitGate(gate=GATES.I, target_qubit=leftover))
 
         circuit_gates.append(layer)
 
@@ -140,30 +144,54 @@ def sample_random_gates(
         if layer_type not in {"1q", "2q", "mixed"}:
             raise ValueError(f"Unknown layer type '{layer_type}'. Use '1q', '2q', or 'mixed'.")
 
-        for _ in range(repeats):
-            if layer_type == "1q":
-                circuit_gates.extend(sample_1q_gates(rng, num_of_qubits, repeats, gate_set))
+        # for _ in range(repeats):
+        if layer_type == "1q":
+            circuit_gates.extend(sample_1q_gates(rng, num_of_qubits, repeats, gate_set))
 
-            elif layer_type == "2q":
-                circuit_gates.extend(sample_2q_gates(rng, num_of_qubits, repeats, gate_set))
+        elif layer_type == "2q":
+            circuit_gates.extend(sample_2q_gates(rng, num_of_qubits, repeats, gate_set))
 
-            else:
-                circuit_gates.extend(sample_mixed_gates(rng, num_of_qubits, repeats, gate_set))
+        else:
+            circuit_gates.extend(sample_mixed_gates(rng, num_of_qubits, repeats, gate_set))
 
     return circuit_gates
 
 
-def resolve_parameters(circuit_gates: list[list[CircuitGate]], rng: np.random.Generator | None = None):
-    if not rng:
+def resolve_parameters(
+    circuit_gates: list[list["CircuitGate"]],
+    rng: np.random.Generator | None = None
+) -> list[list["CircuitGate"]]:
+    """
+    Return a new list of circuit gates where parameterized gates
+    are resolved with random angles. Input is left untouched.
+    """
+    if rng is None:
         rng = np.random.default_rng()
 
-    for layer in circuit_gates:
-        for cg in layer:
-            if cg.gate.target_qubit_matrix is None:
-                base = cg.gate.name.split("(", 1)[0]  # e.g. "Rx" from "Rx" or "Rx(…)"
-                init_function = GATES.INIT_PARAMETRIZED_GATE_FUNC_DICT.get(base)
-                if init_function is None:
-                    raise ValueError(f"No initialization function for param gate '{cg.gate.name}'")
+    new_circuit_gates: list[list["CircuitGate"]] = []
 
+    for layer in circuit_gates:
+        new_layer: list["CircuitGate"] = []
+        for cg in layer:
+            base = cg.gate.name.split("(", 1)[0]
+            init_function = GATES.INIT_PARAMETRIZED_GATE_FUNC_DICT.get(base)
+
+            if init_function and cg.gate.target_qubit_matrix is None:
                 theta = rng.uniform(0.0, 2.0 * np.pi)
-                cg.gate = init_function(theta)
+                new_gate = init_function(theta)
+            else:
+                # keep original gate object
+                new_gate = cg.gate
+
+            # always create a fresh CircuitGate wrapper
+            new_cg = CircuitGate(
+                gate=new_gate,
+                control_qubit=cg.control_qubit,
+                target_qubit=cg.target_qubit
+            )
+            new_layer.append(new_cg)
+
+        new_circuit_gates.append(new_layer)
+
+    return new_circuit_gates
+

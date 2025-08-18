@@ -88,6 +88,8 @@ class Gates:
         self.CRy = self.init_CRy()
         self.CRz = self.init_CRz()
 
+        self.RESET = self.init_RESET()  # only for processing, no matrix
+
         self.GATE_DICT = {
             "I": self.I,
             "X": self.X,
@@ -107,6 +109,8 @@ class Gates:
             "CRx": self.CRx,
             "CRy": self.CRy,
             "CRz": self.CRz,
+
+            "RESET": self.RESET
         }
 
         self.INIT_PARAMETRIZED_GATE_FUNC_DICT = {
@@ -377,6 +381,14 @@ class Gates:
             target_qubit_matrix=gate_matrix.astype(complex),
             control_qubit_matrix_0=self.P0_matrix,
             control_qubit_matrix_1=self.P1_matrix
+        )
+
+    @staticmethod
+    def init_RESET() -> Gate:
+        return Gate(
+            name="RESET",
+            num_of_qubits=1,
+            target_qubit_matrix=None  # handled specially
         )
 
 
