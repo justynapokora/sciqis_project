@@ -35,6 +35,7 @@ class Circuit:
 
     def reset_circuit(self):
         self.state = copy.deepcopy(self.initial_state)
+        self.noisy_state = copy.deepcopy(self.initial_state)
         self.measured_qubits = []
 
     @staticmethod
@@ -84,10 +85,10 @@ class Circuit:
 
             if self.trc_noise:
                 for q in range(self.noisy_state.num_of_qubits):
-                    print(f"TRC")
+                    # print(f"TRC")
                     err = self.trc_noise.sample_error_gate("SPAM", q, self.rng)
                     if err:
-                        print(f"    -> TRC noise on q{q}: {err.gate.name}")
+                        # print(f"    -> TRC noise on q{q}: {err.gate.name}")
                         self.apply_one_qubit_gate(self.noisy_state, err, err.gate.target_qubit_matrix)
 
         # print(f"State (ideal): {self.state}")
@@ -96,33 +97,10 @@ class Circuit:
         # --- main layers
         for layer_idx, layer in enumerate(self.gates):
             # print(f"\n=== Layer {layer_idx} ===")
-            # print("  Ideal path:")
+
             if all(g.gate.num_of_qubits == 1 for g in layer):
                 # print(f"    -> Applying {len(layer)} parallel 1q gates {[g.gate.name for g in layer]}")
-                self.apply_one_qubit_gates_timestep(self.state, layer)
-            else:
-                for g in layer:
-                    self.check_gate_validity(g)
-                    target_qubit_matrix = g.gate.target_qubit_matrix
-                    if target_qubit_matrix is None:
-                        target_qubit_matrix = self.get_parameterised_gate_random_matrix(g.gate.name)
-
-                    # print(f"    -> Applying {g.gate.name} (ideal) on qubits "
-                    #       f"target={g.target_qubit} "
-                    #       f"{'control=' + str(g.control_qubit) if g.control_qubit is not None else ''}")
-                    if g.gate.num_of_qubits == 1:
-                        self.apply_one_qubit_gate(self.state, g, target_qubit_matrix)
-                    else:
-                        self.apply_two_qubit_gate(self.state, g, target_qubit_matrix)
-
-            # print(f"State (ideal): {self.state}")
-            # print(f"State (noisy): {self.noisy_state}")
-
-            # --- noisy path
-            # print("  Noisy path:")
-            if all(g.gate.num_of_qubits == 1 for g in layer):
-                # print(f"    -> Applying {len(layer)} parallel 1q gates {[g.gate.name for g in layer]}")
-                self.apply_one_qubit_gates_timestep(self.noisy_state, layer)
+                self.apply_one_qubit_gates_timestep(layer, self.state, self.noisy_state)
 
                 # Depolarizing noise
                 if self.depolarizing_noise:
@@ -135,10 +113,10 @@ class Circuit:
                 # TRC noise
                 if self.trc_noise:
                     for g in layer:
-                        print(f"TRC")
+                        # print(f"TRC")
                         err = self.trc_noise.sample_error_gate(g.gate.name, g.target_qubit, self.rng)
                         if err:
-                            print(f"    -> TRC noise on q{g.target_qubit}: {err.gate.name}")
+                            # print(f"    -> TRC noise on q{g.target_qubit}: {err.gate.name}")
                             self.apply_one_qubit_gate(self.noisy_state, err, err.gate.target_qubit_matrix)
 
             else:
@@ -153,8 +131,10 @@ class Circuit:
                     #       f"{'control=' + str(g.control_qubit) if g.control_qubit is not None else ''}")
                     if g.gate.num_of_qubits == 1:
                         self.apply_one_qubit_gate(self.noisy_state, g, target_qubit_matrix)
+                        self.apply_one_qubit_gate(self.state, g, target_qubit_matrix)
                     else:
                         self.apply_two_qubit_gate(self.noisy_state, g, target_qubit_matrix)
+                        self.apply_two_qubit_gate(self.state, g, target_qubit_matrix)
 
                     # Add noise
                     if self.depolarizing_noise:
@@ -235,7 +215,7 @@ class Circuit:
             circuit_gate = np.kron(gate, circuit_gate)
         state.qubit_vector = circuit_gate @ state.qubit_vector
 
-    def apply_one_qubit_gates_timestep(self, state: State, timestep_layer: list[CircuitGate]):
+    def apply_one_qubit_gates_timestep(self, timestep_layer: list[CircuitGate], state: State, state2: State = None):
         gates = [GATES.I.target_qubit_matrix.copy() for _ in range(state.num_of_qubits)]
         for g in timestep_layer:
             target_qubit_matrix = g.gate.target_qubit_matrix
@@ -249,6 +229,8 @@ class Circuit:
         # print(circuit_gate)
         # print(circuit_gate @ state.qubit_vector)
         state.qubit_vector = circuit_gate @ state.qubit_vector
+        if state2:
+            state2.qubit_vector = circuit_gate @ state2.qubit_vector
 
     @staticmethod
     def reset_qubit_to_zero(state: State, q: int):
