@@ -4,7 +4,7 @@ import numpy as np
 import copy
 
 from utils.gates import CircuitGate, GATES, PARAMETRISED_GATE_SET
-from utils.states import State
+from utils.states import State, DensityState
 from utils.noise_channels import DepolarizingNoise, SPAMNoise, TRCNoise
 
 
@@ -19,7 +19,7 @@ class Circuit:
                  ):
         self.initial_state: State = copy.deepcopy(state)
         self.state: State = state
-        self.noisy_state: State = copy.deepcopy(state)
+        self.noisy_dm: DensityState = DensityState.from_state(state)
 
         self.gates: list[list[CircuitGate]] = self.layers_to_timesteps(gates)
 
@@ -29,13 +29,11 @@ class Circuit:
 
         self.measured_qubits: list = []
 
-        self.rng = rng
-        if not rng:
-            self.rng = np.random.default_rng()
+        self.rng = rng or np.random.default_rng()
 
     def reset_circuit(self):
         self.state = copy.deepcopy(self.initial_state)
-        self.noisy_state = copy.deepcopy(self.initial_state)
+        self.noisy_dm = DensityState.from_state(self.initial_state)
         self.measured_qubits = []
 
     @staticmethod
@@ -69,116 +67,140 @@ class Circuit:
 
         return gates_timesteps
 
+    # --- helpers to build full-system unitaries ---
+    @staticmethod
+    def _full_1q(n: int, q: int, Uq: np.ndarray) -> np.ndarray:
+        ops = [GATES.I.target_qubit_matrix.copy() for _ in range(n)]
+        ops[q] = Uq
+        full = np.array([[1]], dtype=complex)
+        for op in ops:
+            full = np.kron(op, full)
+        return full
+
+    @staticmethod
+    def _full_2q_ctrl_target(n: int, ctrl: int, tgt: int, target_U: np.ndarray, gate) -> np.ndarray:
+        # same construction as apply_two_qubit_gate, but returns the full operator
+        cz0 = [GATES.I.target_qubit_matrix.copy() for _ in range(n)]
+        cz1 = [GATES.I.target_qubit_matrix.copy() for _ in range(n)]
+        cz0[ctrl] = gate.control_qubit_matrix_0
+        cz1[ctrl] = gate.control_qubit_matrix_1
+        cz1[tgt] = target_U
+
+        full0 = np.array([[1]], dtype=complex)
+        for op in cz0:
+            full0 = np.kron(op, full0)
+
+        full1 = np.array([[1]], dtype=complex)
+        for op in cz1:
+            full1 = np.kron(op, full1)
+
+        return full0 + full1
+
     def simulate_circuit(self):
+        n = self.state.num_of_qubits
         # print("=== Starting simulation ===")
         # print(f"Initial state (ideal):  {self.state}")
         # print(f"Initial state (noisy):  {self.noisy_state}")
 
-        # --- SPAM preparation noise at t=0
+        # --- SPAM preparation as channel on noisy DM (optional) ---
         if self.spam_noise:
-            # print("\n[SPAM Noise] Applying preparation errors...")
-            for q in range(self.noisy_state.num_of_qubits):
-                g = self.spam_noise.sample_prep_error(q, self.rng)
-                if g:
-                    # print(f"  -> Qubit {q}: prep error {g.gate.name}")
-                    self.apply_one_qubit_gate(self.noisy_state, g, g.gate.target_qubit_matrix)
+            for q in range(n):
+                ks = self.spam_noise.kraus_prep(q)
+                self.noisy_dm.apply_1q_channel(ks, q)
 
             if self.trc_noise:
-                for q in range(self.noisy_state.num_of_qubits):
-                    # print(f"TRC")
-                    err = self.trc_noise.sample_error_gate("SPAM", q, self.rng)
-                    if err:
-                        # print(f"    -> TRC noise on q{q}: {err.gate.name}")
-                        self.apply_one_qubit_gate(self.noisy_state, err, err.gate.target_qubit_matrix)
+                for q in range(n):
+                    ks = self.trc_noise.kraus_for("SPAM", q)
+                    self.noisy_dm.apply_1q_channel(ks, q)
 
         # print(f"State (ideal): {self.state}")
         # print(f"State (noisy): {self.noisy_state}")
 
-        # --- main layers
-        for layer_idx, layer in enumerate(self.gates):
-            # print(f"\n=== Layer {layer_idx} ===")
+        # --- main layers ---
+        for layer in self.gates:
+            all_1q = all(g.gate.num_of_qubits == 1 for g in layer)
 
-            if all(g.gate.num_of_qubits == 1 for g in layer):
-                # print(f"    -> Applying {len(layer)} parallel 1q gates {[g.gate.name for g in layer]}")
-                self.apply_one_qubit_gates_timestep(layer, self.state, self.noisy_state)
+            if all_1q:
+                # Build the single parallel 1q unitary once (sampling thetas once),
+                # apply to ideal statevector AND to noisy density matrix.
+                ops = [GATES.I.target_qubit_matrix.copy() for _ in range(n)]
+                for g in layer:
+                    Uq = g.gate.target_qubit_matrix
+                    if Uq is None:
+                        Uq = self.get_parameterised_gate_random_matrix(g.gate.name)
+                    ops[g.target_qubit] = Uq
 
-                # Depolarizing noise
+                U = np.array([[1]], dtype=complex)
+                for op in ops:
+                    U = np.kron(op, U)
+
+                # ideal vector
+                self.state.qubit_vector = U @ self.state.qubit_vector
+                # noisy density-matrix
+                self.noisy_dm.apply_unitary(U)
+
+                # --- channels (noisy only) ---
+                # Depolarizing after each gate (paper)
                 if self.depolarizing_noise:
                     for g in layer:
-                        err = self.depolarizing_noise.sample_error_gate(g.gate.name, g.target_qubit, self.rng)
-                        if err:
-                            # print(f"    -> Depol noise on q{g.target_qubit}: {err.gate.name}")
-                            self.apply_one_qubit_gate(self.noisy_state, err, err.gate.target_qubit_matrix)
+                        ks = self.depolarizing_noise.kraus_for_1q(g.gate.name, g.target_qubit)
+                        self.noisy_dm.apply_1q_channel(ks, g.target_qubit)
 
-                # TRC noise
+                # TRC after each gate
                 if self.trc_noise:
                     for g in layer:
-                        # print(f"TRC")
-                        err = self.trc_noise.sample_error_gate(g.gate.name, g.target_qubit, self.rng)
-                        if err:
-                            # print(f"    -> TRC noise on q{g.target_qubit}: {err.gate.name}")
-                            self.apply_one_qubit_gate(self.noisy_state, err, err.gate.target_qubit_matrix)
+                        ks = self.trc_noise.kraus_for(g.gate.name, g.target_qubit)
+                        self.noisy_dm.apply_1q_channel(ks, g.target_qubit)
 
             else:
+                # Mixed layer: apply gates one-by-one, but share thetas across ideal+noisy
                 for g in layer:
                     self.check_gate_validity(g)
-                    target_qubit_matrix = g.gate.target_qubit_matrix
-                    if target_qubit_matrix is None:
-                        target_qubit_matrix = self.get_parameterised_gate_random_matrix(g.gate.name)
+                    Uq = g.gate.target_qubit_matrix
+                    if Uq is None:
+                        Uq = self.get_parameterised_gate_random_matrix(g.gate.name)
 
-                    # print(f"    -> Applying {g.gate.name} (noisy) on qubits "
-                    #       f"target={g.target_qubit} "
-                    #       f"{'control=' + str(g.control_qubit) if g.control_qubit is not None else ''}")
                     if g.gate.num_of_qubits == 1:
-                        self.apply_one_qubit_gate(self.noisy_state, g, target_qubit_matrix)
-                        self.apply_one_qubit_gate(self.state, g, target_qubit_matrix)
+                        # ideal
+                        self.apply_one_qubit_gate(self.state, g, Uq)
+                        # noisy
+                        U = self._full_1q(n, g.target_qubit, Uq)
+                        self.noisy_dm.apply_unitary(U)
+                        # channels
+                        if self.depolarizing_noise:
+                            ks = self.depolarizing_noise.kraus_for_1q(g.gate.name, g.target_qubit)
+                            self.noisy_dm.apply_1q_channel(ks, g.target_qubit)
+                        if self.trc_noise:
+                            ks = self.trc_noise.kraus_for(g.gate.name, g.target_qubit)
+                            self.noisy_dm.apply_1q_channel(ks, g.target_qubit)
+
                     else:
-                        self.apply_two_qubit_gate(self.noisy_state, g, target_qubit_matrix)
-                        self.apply_two_qubit_gate(self.state, g, target_qubit_matrix)
+                        # two-qubit (control, target)
+                        # ideal
+                        self.apply_two_qubit_gate(self.state, g, Uq)
+                        # noisy
+                        U = self._full_2q_ctrl_target(n, g.control_qubit, g.target_qubit, Uq, g.gate)
+                        self.noisy_dm.apply_unitary(U)
+                        # channels
+                        # Depolarizing: target only (paper Fig. 2b)
+                        if self.depolarizing_noise:
+                            ks = self.depolarizing_noise.kraus_for_1q(g.gate.name, g.target_qubit)
+                            self.noisy_dm.apply_1q_channel(ks, g.target_qubit)
+                        # TRC: independently on both qubits
+                        if self.trc_noise:
+                            for q in (g.control_qubit, g.target_qubit):
+                                ks = self.trc_noise.kraus_for(g.gate.name, q)
+                                self.noisy_dm.apply_1q_channel(ks, q)
 
-                    # Add noise
-                    if self.depolarizing_noise:
-                        bname = g.gate.name.split("(")[0]
-                        if bname == "CZ":
-                            for q in [g.control_qubit, g.target_qubit]:
-                                err = self.depolarizing_noise.sample_error_gate(g.gate.name, q, self.rng)
-                                if err:
-                                    # print(f"    -> Depol noise after CZ on q{q}: {err.gate.name}")
-                                    self.apply_one_qubit_gate(self.noisy_state, err, err.gate.target_qubit_matrix)
-                        elif g.gate.num_of_qubits == 2:
-                            err = self.depolarizing_noise.sample_error_gate(g.gate.name, g.target_qubit, self.rng)
-                            if err:
-                                # print(f"    -> Depol noise after 2q gate on target q{g.target_qubit}: {err.gate.name}")
-                                self.apply_one_qubit_gate(self.noisy_state, err, err.gate.target_qubit_matrix)
-                        else:
-                            err = self.depolarizing_noise.sample_error_gate(g.gate.name, g.target_qubit, self.rng)
-                            if err:
-                                # print(f"    -> Depol noise after 1q gate on q{g.target_qubit}: {err.gate.name}")
-                                self.apply_one_qubit_gate(self.noisy_state, err, err.gate.target_qubit_matrix)
+        # --- SPAM measurement channel (optional) ---
+        if self.spam_noise:
+            for q in range(n):
+                ks = self.spam_noise.kraus_meas(q)
+                self.noisy_dm.apply_1q_channel(ks, q)
 
-                    if self.trc_noise:
-                        # print(f"TRC")
-                        touched = [g.target_qubit] if g.gate.num_of_qubits == 1 else [g.control_qubit, g.target_qubit]
-                        for q in touched:
-                            err = self.trc_noise.sample_error_gate(g.gate.name, q, self.rng)
-                            if err:
-                                # print(f"    -> TRC noise on q{q}: {err.gate.name}")
-                                self.apply_one_qubit_gate(self.noisy_state, err, err.gate.target_qubit_matrix)
-
-                # --- SPAM measurement noise
-                if self.spam_noise:
-                    # print("\n[SPAM Noise] Applying measurement errors...")
-                    for q in range(self.noisy_state.num_of_qubits):
-                        g = self.spam_noise.sample_meas_error(q, self.rng)
-                        if g:
-                            # print(f"  -> Qubit {q}: prep error {g.gate.name}")
-                            self.apply_one_qubit_gate(self.noisy_state, g, g.gate.target_qubit_matrix)
-
-        # print("\n=== Simulation complete ===")
-        # print(f"Final ideal state: {self.state}")
-        # print(f"Final noisy state: {self.noisy_state}")
-        self.noisy_state.normalize_state()
+        # finalize
         self.state.normalize_state()
+        self.noisy_dm.normalize_dm()
 
     def get_parameterised_gate_random_matrix(self, gate_name):
         base = gate_name.split("(", 1)[0]  # e.g. "Rx" from "Rx" or "Rx(…)"
@@ -202,40 +224,17 @@ class Circuit:
 
         if g.gate.num_of_qubits > self.state.num_of_qubits:
             raise ValueError(
+                f"Incorrect gate: {g}, "
+                f"number of qubits in the state: {self.state.num_of_qubits}"
             )
 
     def apply_one_qubit_gate(self, state: State, g: CircuitGate, target_qubit_matrix: np.ndarray):
-        if g.gate.name == "RESET":
-            self.reset_qubit_to_zero(state, g.target_qubit)
-            return
         gates = [GATES.I.target_qubit_matrix.copy() for _ in range(state.num_of_qubits)]
         gates[g.target_qubit] = target_qubit_matrix
         circuit_gate = np.array([[1]], dtype=complex)
         for gate in gates:
             circuit_gate = np.kron(gate, circuit_gate)
         state.qubit_vector = circuit_gate @ state.qubit_vector
-
-    def apply_one_qubit_gates_timestep(self, timestep_layer: list[CircuitGate], state: State, state2: State = None):
-        gates = [GATES.I.target_qubit_matrix.copy() for _ in range(state.num_of_qubits)]
-        for g in timestep_layer:
-            target_qubit_matrix = g.gate.target_qubit_matrix
-            if target_qubit_matrix is None:
-                target_qubit_matrix = self.get_parameterised_gate_random_matrix(g.gate.name)
-            gates[g.target_qubit] = target_qubit_matrix
-
-        circuit_gate = np.array([[1]], dtype=complex)
-        for gate in gates:
-            circuit_gate = np.kron(gate, circuit_gate)
-        # print(circuit_gate)
-        # print(circuit_gate @ state.qubit_vector)
-        state.qubit_vector = circuit_gate @ state.qubit_vector
-        if state2:
-            state2.qubit_vector = circuit_gate @ state2.qubit_vector
-
-    @staticmethod
-    def reset_qubit_to_zero(state: State, q: int):
-        state.reset_qubit_to_zero(q)
-        # state.normalize_state()
 
     @staticmethod
     def apply_two_qubit_gate(state: State, g: CircuitGate, target_qubit_matrix: np.ndarray):
