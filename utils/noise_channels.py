@@ -45,16 +45,18 @@ class DepolarizingNoise:
         # fallback: treat unknown as 1q
         return self.p1_1q
 
-    def sample_error_gate(self, gate_name: str, qubit: int, rng: np.random.Generator) -> CircuitGate | None:
+    # ---  Kraus builders (1-qubit) ---
+    def kraus_for_1q(self, gate_name: str, qubit: int) -> list[np.ndarray]:
         p = self.rate_for_gate(gate_name)
-        if p <= 0:
-            return None
-        probs = [1 - p, p / 3, p / 3, p / 3]
-        choice = rng.choice(["I", "X", "Y", "Z"], p=probs)
-        if choice == "I":
-            return None
-
-        return CircuitGate(GATES.GATE_DICT[choice], target_qubit=qubit)
+        if p <= 0.0:
+            return [np.eye(2, dtype=complex)]
+        sI = np.sqrt(1.0 - p)
+        sP = np.sqrt(p / 3.0)
+        I = np.eye(2, dtype=complex)
+        X = GATES.X.target_qubit_matrix
+        Y = GATES.Y.target_qubit_matrix
+        Z = GATES.Z.target_qubit_matrix
+        return [sI * I, sP * X, sP * Y, sP * Z]
 
 
 # (ii) SPAM: state preparation & measurement X-flip errors
@@ -103,11 +105,20 @@ class SPAMNoise:
             return CircuitGate(GATES.X, target_qubit=qubit)
         return None
 
-    def sample_meas_error(self, qubit: int, rng: np.random.Generator) -> CircuitGate | None:
+    # --- Kraus builders ---
+    def kraus_prep(self, qubit: int) -> list[np.ndarray]:
+        p = self.p_prep(qubit)
+        s0, s1 = np.sqrt(1.0 - p), np.sqrt(p)
+        I = np.eye(2, dtype=complex)
+        X = GATES.X.target_qubit_matrix
+        return [s0 * I, s1 * X]
+
+    def kraus_meas(self, qubit: int) -> list[np.ndarray]:
         p = self.p_meas(qubit)
-        if rng.random() < p:
-            return CircuitGate(GATES.X, target_qubit=qubit)
-        return None
+        s0, s1 = np.sqrt(1.0 - p), np.sqrt(p)
+        I = np.eye(2, dtype=complex)
+        X = GATES.X.target_qubit_matrix
+        return [s0 * I, s1 * X]
 
 
 # (iii) TRC: thermal relaxation (T1) + dephasing (T2) per qubit
@@ -125,7 +136,6 @@ class TRCNoise:
     T2_overrides: dict[int, float] = field(default_factory=dict)
 
     def __post_init__(self):
-        print(self.T1_default, self.T2_default)
         # Provide realistic default durations if none supplied (you can still override)
         if not self.gate_durations:
             self.gate_durations = {
@@ -175,9 +185,6 @@ class TRCNoise:
     def _Tg(self, gate_name: str) -> float:
         return self.gate_durations.get(base_name(gate_name), 0.0)
 
-    def has_time(self, gate_name: str) -> bool:
-        return self._Tg(gate_name) > 0.0
-
     # ----------------- probabilities (paper, Θ≈0) -----------------
     def _probs_T2_le_T1(self, Tg: float, T1: float, T2: float) -> dict[str, float]:
         # Eqns from the paper (low-T), valid when T2 ≤ T1.
@@ -203,54 +210,30 @@ class TRCNoise:
         # For a dephasing (Pauli-Z) channel: ρ -> (1-λ)ρ + λ ZρZ, off-diagonals scale by (1-2λ) = e^{-Tg/Tφ}
         return (1.0 - np.exp(-Tg / Tphi)) / 2.0
 
-    # ----------------- sampling API -----------------
-    def sample_error_gates(self, gate_name: str, qubit: int, rng: np.random.Generator) -> list[CircuitGate]:
-        """
-        Faithful to the paper:
-        - If Tg = 0: no TRC.
-        - If T2 ≤ T1: single-draw among {RESET, Z, I} with probabilities from the paper.
-        - If T1 < T2 ≤ 2T1: sequential composition — first amplitude damping (RESET with γ),
-          then (only if no RESET) pure dephasing as a Pauli-Z with probability λ(Tφ).
-        Returns a list of CircuitGate noise operations to apply on that qubit in this time step (often 0 or 1 element).
-        """
+    # --- return one 1-qubit Kraus set for gate g on qubit q ---
+    def kraus_for(self, gate_name: str, qubit: int) -> list[np.ndarray]:
         Tg = self._Tg(gate_name)
         if Tg <= 0.0:
-            return []
+            return [np.eye(2, dtype=complex)]
 
         T1 = self._T1(qubit)
         T2 = self._T2(qubit)
-        # print("sample error gate")
-        # print(Tg, T1, T2)
 
-        # --- case 1: T2 ≤ T1  (paper's mixed channel with Kraus {√p_I I, √p_Z Z, √p_reset |0><0|})
-        if T2 <= T1:
-            probs = self._probs_T2_le_T1(Tg, T1, T2)
-            # print(f"probs: p_I = {probs['p_I']}, p_Z = {probs['p_Z']}, p_RESET = {probs['p_reset']},")
-            #
-            # one multinomial draw
-            choice = rng.choice(["I", "Z", "RESET"], p=[probs["p_I"], probs["p_Z"], probs["p_reset"]])
-            if choice == "Z":
-                return [CircuitGate(GATES.Z, target_qubit=qubit)]
-            if choice == "RESET":
-                return [CircuitGate(GATES.RESET, target_qubit=qubit)]
-            return []
+        # Amplitude damping part (Θ≈0): γ = 1 - e^{-Tg/T1}
+        gamma = 1.0 - np.exp(-Tg / T1)
+        A0 = np.array([[1.0, 0.0], [0.0, np.sqrt(1.0 - gamma)]], dtype=complex)
+        A1 = np.array([[0.0, np.sqrt(gamma)], [0.0, 0.0]], dtype=complex)
 
-        # --- case 2: T1 < T2 ≤ 2T1  (paper uses a Choi representation; we realize the same decay via AD + dephasing)
-        # amplitude damping first
-        gamma = 1.0 - np.exp(-Tg / T1)  # jump (reset-to-|0>) probability
-        if rng.random() < gamma:
-            return [CircuitGate(GATES.RESET, target_qubit=qubit)]
-
-        # then extra pure dephasing to fulfill T2
+        # Additional pure dephasing to match T2: λ from your helper
         lam = self._lambda_dephase(Tg, T1, T2)
-        if lam > 0.0 and rng.random() < lam:
-            return [CircuitGate(GATES.Z, target_qubit=qubit)]
+        if lam <= 0.0:
+            return [A0, A1]
 
-        return []
+        # Dephasing Kraus
+        I2 = np.eye(2, dtype=complex)
+        Z2 = GATES.Z.target_qubit_matrix
+        D0 = np.sqrt(1.0 - lam) * I2
+        D1 = np.sqrt(lam) * Z2
 
-    # Backward-compatible adapter (returns just one gate or None)
-    def sample_error_gate(self, gate_name: str, qubit: int, rng: np.random.Generator):
-        gates = self.sample_error_gates(gate_name, qubit, rng)
-        # print(gates)
-
-        return gates[0] if gates else None
+        # Compose once: {D_i A_j}
+        return [D0 @ A0, D0 @ A1, D1 @ A0, D1 @ A1]
