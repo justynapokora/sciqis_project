@@ -1,5 +1,6 @@
 import numpy as np
 from dataclasses import dataclass, field
+from scipy.constants import h, k
 
 from utils.gates import ONE_QUBIT_GATES, TWO_QUBITS_GATES, CircuitGate, GATES
 
@@ -121,119 +122,173 @@ class SPAMNoise:
         return [s0 * I, s1 * X]
 
 
-# (iii) TRC: thermal relaxation (T1) + dephasing (T2) per qubit
 @dataclass
-class TRCNoise:
-    # Device parameters (per paper; Θ≈0 ⇒ no excitation path by default)
+class TDCNoise:
+    """
+    Thermal decoherence channel (relaxation + excitation + dephasing).
+
+    Parameters held per qubit:
+      - T1, T2     : times [s], with T2 ≤ 2*T1 (clamped)
+      - f (freq)   : qubit frequency [Hz]
+      - T (temp)   : physical temperature [K]
+
+    Per gate:
+      - Tg         : duration [s] from gate_durations
+
+    Probabilities per gate on a qubit:
+      p_T1   = exp(-Tg/T1)
+      p_T2   = exp(-Tg/T2)
+      p_reset = 1 - p_T1
+      w_e    = 1 / (1 + exp(h f / (k_B T)))   # equilibrium excited-state pop
+      (split) p_reset0 = (1 - w_e) * p_reset  # decay → |0⟩
+              p_reset1 = w_e * p_reset        # excitation → |1⟩
+      p_Z    = (1 - p_reset) * (1 - p_T2/p_T1) / 2
+      p_I    = 1 - p_Z - p_reset0 - p_reset1
+
+    Two regimes:
+      • T2 ≤ T1     → explicit Kraus: {√p_I I, √p_Z Z, √p_reset0 |0⟩⟨0|, √p_reset1 |1⟩⟨1|}
+      • T1 < T2 ≤ 2T1 → build Kraus from the Choi matrix via SVD.
+
+    Notes:
+      - Set frequencies/temperatures via setters or defaults; w_e is always computed at call time.
+      - Gates with Tg = 0 return identity Kraus.
+    """
+
+    # Defaults (can be overridden per qubit)
     T1_default: float = 50e-6
     T2_default: float = 50e-6
+    f_default: float = 5.0e9  # 5 GHz typical SC qubit
+    temp_default: float = 0.015  # 15 mK typical dilution fridge
 
-    # Gate-duration table [seconds]. Nonzero defaults so TRC is effective.
+    # Gate-duration table [s]
     gate_durations: dict[str, float] = field(default_factory=dict)
 
-    # Optional per-qubit overrides
+    # Per-qubit overrides
     T1_overrides: dict[int, float] = field(default_factory=dict)
     T2_overrides: dict[int, float] = field(default_factory=dict)
+    freq_overrides: dict[int, float] = field(default_factory=dict)
+    temp_overrides: dict[int, float] = field(default_factory=dict)
 
     def __post_init__(self):
-        # Provide realistic default durations if none supplied (you can still override)
         if not self.gate_durations:
             self.gate_durations = {
                 # single-qubit
-                "I": 0.0, "X": 35e-9, "Y": 35e-9, "Z": 0.0,  # virtual Z
+                "I": 0.0, "X": 35e-9, "Y": 35e-9, "Z": 0.0,
                 "H": 35e-9, "S": 0.0, "T": 0.0,
                 "Rx": 35e-9, "Ry": 35e-9, "Rz": 0.0,
-                # two-qubit (example superconducting scale)
+                # two-qubit
                 "CNOT": 250e-9, "CZ": 250e-9,
                 "CRx": 250e-9, "CRy": 250e-9, "CRz": 250e-9,
-                # placeholders never consume time
-                "RESET": 0.0, "SPAM": 0.0, "DC": 0.0, "TRC": 0.0,
+                # placeholders
+                "RESET": 0.0, "SPAM": 0.0, "DC": 0.0, "TDC": 0.0,
             }
 
-    # ----------------- setters -----------------
-    @staticmethod
-    def _validate_time(t: float, name: str):
-        if t < 0.0:
-            raise ValueError(f"{name} must be ≥ 0, got {t}")
+    # ---------- setters ----------
+    def set_T1(self, q: int, T1: float):
+        self.T1_overrides[q] = float(T1)
 
-    def set_T1(self, qubit: int, T1: float):
-        self._validate_time(T1, "T1")
-        if T1 == 0.0:
-            raise ValueError("T1 must be > 0")
-        self.T1_overrides[qubit] = T1
+    def set_T2(self, q: int, T2: float):
+        self.T2_overrides[q] = float(T2)
 
-    def set_T2(self, qubit: int, T2: float):
-        self._validate_time(T2, "T2")
-        if T2 == 0.0:
-            raise ValueError("T2 must be > 0")
-        self.T2_overrides[qubit] = T2
+    def set_frequency(self, q: int, f_hz: float):
+        self.freq_overrides[q] = float(f_hz)
+
+    def set_temperature(self, q: int, T_K: float):
+        self.temp_overrides[q] = float(T_K)
 
     def set_gate_duration(self, gate: str, seconds: float):
-        self._validate_time(seconds, "gate duration")
-        self.gate_durations[base_name(gate)] = seconds
+        self.gate_durations[base_name(gate)] = float(seconds)
 
-    # ----------------- helpers -----------------
-    def _T1(self, qubit: int) -> float:
-        return self.T1_overrides.get(qubit, self.T1_default)
+    # ---------- accessors ----------
+    def _T1(self, q: int) -> float:
+        return self.T1_overrides.get(q, self.T1_default)
 
-    def _T2(self, qubit: int) -> float:
-        # Physical constraint T2 ≤ 2 T1 (paper)
-        T1 = self._T1(qubit)
-        T2 = self.T2_overrides.get(qubit, self.T2_default)
+    def _T2(self, q: int) -> float:
+        T1 = self._T1(q)
+        T2 = self.T2_overrides.get(q, self.T2_default)
         return min(T2, 2.0 * T1)
+
+    def _freq(self, q: int) -> float:
+        return self.freq_overrides.get(q, self.f_default)
+
+    def _temp(self, q: int) -> float:
+        return self.temp_overrides.get(q, self.temp_default)
 
     def _Tg(self, gate_name: str) -> float:
         return self.gate_durations.get(base_name(gate_name), 0.0)
 
-    # ----------------- probabilities (paper, Θ≈0) -----------------
-    def _probs_T2_le_T1(self, Tg: float, T1: float, T2: float) -> dict[str, float]:
-        # Eqns from the paper (low-T), valid when T2 ≤ T1.
-        pT1 = np.exp(-Tg / T1)
-        pT2 = np.exp(-Tg / T2)
-        p_reset = 1.0 - pT1
-        # pZ as in text; guard numerical drift
-        ratio = pT2 / pT1 if pT1 > 0.0 else 0.0
-        p_Z = (1.0 - p_reset) * (1.0 - ratio) / 2.0
-        p_Z = max(0.0, p_Z)  # clamp tiny negative due to FP error
-        p_I = 1.0 - p_reset - p_Z
-        # final clamp
-        def clip01(x): return 0.0 if x < 0.0 else (1.0 if x > 1.0 else x)
-        return {"p_I": clip01(p_I), "p_Z": clip01(p_Z), "p_reset": clip01(p_reset)}
-
-    def _lambda_dephase(self, Tg: float, T1: float, T2: float) -> float:
-        # Compose amplitude damping (γ) and extra pure dephasing so that coherences ~ e^{-Tg/T2}.
-        # 1/T2 = 1/(2T1) + 1/Tφ  ⇒  Tφ = 1 / (1/T2 - 1/(2T1))
-        denom = (1.0 / T2) - (1.0 / (2.0 * T1))
-        if denom <= 0:
+    @staticmethod
+    def _we_from_f_T(freq_hz: float, temp_K: float) -> float:
+        """
+        Equilibrium excited-state population:
+            w_e = 1 / (1 + exp(h f / (k_B T)))
+        """
+        x = (h * freq_hz) / (k * max(temp_K, 1e-12))  # guard T→0
+        try:
+            return 1.0 / (1.0 + np.exp(x))
+        except OverflowError:
             return 0.0
-        Tphi = 1.0 / denom
-        # For a dephasing (Pauli-Z) channel: ρ -> (1-λ)ρ + λ ZρZ, off-diagonals scale by (1-2λ) = e^{-Tg/Tφ}
-        return (1.0 - np.exp(-Tg / Tphi)) / 2.0
 
-    # --- return one 1-qubit Kraus set for gate g on qubit q ---
+    # ---------- main ----------
     def kraus_for(self, gate_name: str, qubit: int) -> list[np.ndarray]:
+        """
+        Return Kraus operators for thermal decoherence on `qubit` after `gate_name`.
+        """
         Tg = self._Tg(gate_name)
         if Tg <= 0.0:
             return [np.eye(2, dtype=complex)]
 
         T1 = self._T1(qubit)
         T2 = self._T2(qubit)
+        f = self._freq(qubit)
+        T = self._temp(qubit)
 
-        # Amplitude damping part (Θ≈0): γ = 1 - e^{-Tg/T1}
-        gamma = 1.0 - np.exp(-Tg / T1)
-        A0 = np.array([[1.0, 0.0], [0.0, np.sqrt(1.0 - gamma)]], dtype=complex)
-        A1 = np.array([[0.0, np.sqrt(gamma)], [0.0, 0.0]], dtype=complex)
+        pT1 = np.exp(-Tg / T1)
+        pT2 = np.exp(-Tg / T2)
+        p_reset = 1.0 - pT1
 
-        # Additional pure dephasing to match T2: λ from your helper
-        lam = self._lambda_dephase(Tg, T1, T2)
-        if lam <= 0.0:
-            return [A0, A1]
+        we = self._we_from_f_T(f, T)  # compute each call
+        p_reset0 = (1.0 - we) * p_reset
+        p_reset1 = we * p_reset
 
-        # Dephasing Kraus
-        I2 = np.eye(2, dtype=complex)
-        Z2 = GATES.Z.target_qubit_matrix
-        D0 = np.sqrt(1.0 - lam) * I2
-        D1 = np.sqrt(lam) * Z2
+        ratio = (pT2 / pT1) if pT1 > 0.0 else 0.0
+        p_Z = max(0.0, (1.0 - p_reset) * (1.0 - ratio) / 2.0)
+        p_I = 1.0 - p_Z - p_reset0 - p_reset1
 
-        # Compose once: {D_i A_j}
-        return [D0 @ A0, D0 @ A1, D1 @ A0, D1 @ A1]
+        # Case A: T2 ≤ T1 → explicit Kraus
+        if T2 <= T1:
+            I2 = np.eye(2, dtype=complex)
+            Z2 = GATES.Z.target_qubit_matrix
+            K_I = np.sqrt(max(0.0, p_I)) * I2
+            K_Z = np.sqrt(max(0.0, p_Z)) * Z2
+            K_r0 = np.sqrt(max(0.0, p_reset0)) * np.array([[1, 0], [0, 0]], dtype=complex)  # |0><0|
+            K_r1 = np.sqrt(max(0.0, p_reset1)) * np.array([[0, 0], [0, 1]], dtype=complex)  # |1><1|
+            return [K_I, K_Z, K_r0, K_r1]
+
+        # Case B: T1 < T2 ≤ 2T1 → Choi matrix with excitation included
+        # Build C in the standard 2×2 block form:
+        #   C = [[E(|0><0|), E(|0><1|)],
+        #        [E(|1><0|), E(|1><1|)]]
+        #
+        # where:
+        #   E(|0><0|) = (1 - p_reset1) |0><0| + p_reset1 |1><1|
+        #   E(|1><1|) = p_reset0 |0><0| + (1 - p_reset0) |1><1|
+        #   E(|0><1|) = pT2 |0><1|,   E(|1><0|) = pT2 |1><0|
+        #
+        # In the computational basis { |00>, |01>, |10>, |11> } this gives:
+        C = np.array([
+            [1.0 - p_reset1, 0.0, 0.0, pT2],
+            [0.0, p_reset1, 0.0, 0.0],
+            [0.0, 0.0, p_reset0, 0.0],
+            [pT2, 0.0, 0.0, 1.0 - p_reset0]
+        ], dtype=complex)
+
+        # Kraus operators from SVD (numerically stable, CPTP if C is valid)
+        U, s, _ = np.linalg.svd(C)
+        kraus_ops = []
+        for sv, col in zip(s, U.T):
+            if sv > 1e-12:
+                K = (np.sqrt(sv) * col).reshape(2, 2)
+                kraus_ops.append(K)
+        return kraus_ops
+
