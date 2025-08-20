@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from utils.gates import GATES
 
 
 class State:
@@ -46,18 +47,75 @@ class State:
 
         return " + ".join(terms) if terms else "0"
 
-    def get_probabilities_str(self):
-        flat = self.qubit_vector.ravel()
-        lines = []
+    # ---------- core helpers ----------
+    @staticmethod
+    def _oneq_basis_op(basis_char: str) -> np.ndarray:
+        """Single-qubit unitary that maps a B-basis measurement to Z-basis measurement."""
+        b = basis_char.upper()
+        I = np.eye(2, dtype=complex)
+        H = GATES.H.target_qubit_matrix
+        S = GATES.S.target_qubit_matrix
+        Sdg = S.conj().T
+        if b == "Z":
+            return I
+        if b == "X":
+            return H
+        if b == "Y":
+            return H @ Sdg
+        raise ValueError(f"Unknown basis '{basis_char}'. Use 'X', 'Y', or 'Z'.")
 
-        for i, amplitude in enumerate(flat):
-            prob = abs(amplitude) ** 2
-            if not np.isclose(prob, 0):  # skip zero-probability states
-                basis_state = format(i, f'0{self.num_of_qubits}b')
-                prob_str = f"{prob:.3f}"  # keep 3 decimal places
-                lines.append(f"P( |{basis_state}⟩ ) = {prob_str}")
+    def _full_basis_op(self, basis: str) -> np.ndarray:
+        """⊗ over all qubits of the per-qubit mapping for a uniform basis ('X','Y','Z')."""
+        if len(basis) != 1:
+            raise ValueError("Only uniform bases supported here: basis must be one of 'X','Y','Z'.")
+        Uq = self._oneq_basis_op(basis)
+        ops = [Uq for _ in range(self.num_of_qubits)]
+        U = np.array([[1]], dtype=complex)
+        for op in ops:
+            U = np.kron(op, U)
+        return U
 
-        return "\n".join(lines) if lines else "P=0"
+    def _label_bits(self, index: int, basis: str) -> str:
+        """Map computational index → per-qubit label string in the requested basis."""
+        b = basis.upper()
+        bits = format(index, f'0{self.num_of_qubits}b')
+        if b == "Z":
+            # '0'/'1'
+            return bits
+        if b == "X":
+            # '+' for '0', '-' for '1'
+            return "".join("+" if c == "0" else "-" for c in bits)
+        if b == "Y":
+            # '+i' for '0', '-i' for '1'
+            return "".join("+i" if c == "0" else "-i" for c in bits)
+        raise ValueError(f"Unknown basis '{basis}'.")
+
+    # ---------- dictionaries ----------
+    def get_probabilities_dict(self, basis: str = "Z") -> dict[str, float]:
+        """
+        Probabilities for measuring in a UNIFORM basis across all qubits.
+        basis ∈ {'Z','X','Y'}; labels are:
+          Z: '0'/'1',  X: '+/-',  Y: '+i'/'-i' per qubit, concatenated.
+        """
+        b = basis.upper()
+
+        # Map to Z-basis by applying the appropriate unitary, then square amplitudes
+        U = self._full_basis_op(b)
+        psi_prime = (U @ self.qubit_vector).ravel()
+        probs = {}
+        for i, amp in enumerate(psi_prime):
+            probs[self._label_bits(i, b)] = float(abs(amp) ** 2)
+        return probs
+
+    # ---------- pretty-printers ----------
+    def get_probabilities_str(self, print_zero_probabilities: bool = False, basis: str = "Z") -> str:
+        """Pretty print non-zero probabilities for basis ∈ {'X','Y','Z'}."""
+        probs = self.get_probabilities_dict(basis)
+        if print_zero_probabilities:
+            lines = [f"P(|{b}⟩) = {p:.5f}" for b, p in probs.items()]
+        else:
+            lines = [f"P(|{b}⟩) = {p:.5f}" for b, p in probs.items() if not np.isclose(p, 0, atol=1e-5)]
+        return "\n".join(lines) if lines else "Invalid state: no nonzero probabilities (check normalization)"
 
     def normalize_state(self):
         norm = np.linalg.norm(self.qubit_vector)
@@ -227,20 +285,83 @@ class DensityState:
         self.rho = accum
 
     def normalize_dm(self):
-        # Numerical hygiene: enforce Hermiticity and unit trace
+        # enforce Hermiticity and unit trace
         self.rho = 0.5 * (self.rho + self.rho.conj().T)
         tr = np.trace(self.rho)
         if tr != 0:
             self.rho /= tr
 
-    def get_probabilities_str(self):
-        pops = np.real(np.diag(self.rho))
-        lines = []
+    # ---------- core helpers ----------
+    @staticmethod
+    def _oneq_basis_op(basis_char: str) -> np.ndarray:
+        """Single-qubit unitary that maps a B-basis measurement to Z-basis measurement."""
+        b = basis_char.upper()
+        I = np.eye(2, dtype=complex)
+        H = GATES.H.target_qubit_matrix
+        S = GATES.S.target_qubit_matrix
+        Sdg = S.conj().T
+        if b == "Z":
+            return I
+        if b == "X":
+            return H
+        if b == "Y":
+            return H @ Sdg
+        raise ValueError(f"Unknown basis '{basis_char}'. Use 'X', 'Y', or 'Z'.")
+
+    def _full_basis_op(self, basis: str) -> np.ndarray:
+        """⊗ over all qubits of the per-qubit mapping for a uniform basis ('X','Y','Z')."""
+        if len(basis) != 1:
+            raise ValueError("Only uniform bases supported: 'X', 'Y', or 'Z'.")
+        Uq = self._oneq_basis_op(basis)
+        ops = [Uq for _ in range(self.num_of_qubits)]
+        U = np.array([[1]], dtype=complex)
+        for op in ops:
+            U = np.kron(op, U)
+        return U
+
+    def _label_bits(self, index: int, basis: str) -> str:
+        """Map computational index → per-qubit label string in the requested basis."""
+        b = basis.upper()
+        bits = format(index, f'0{self.num_of_qubits}b')
+        if b == "Z":
+            return bits  # '0'/'1'
+        if b == "X":
+            return "".join("+" if c == "0" else "-" for c in bits)  # +/-
+        if b == "Y":
+            return "".join("+i" if c == "0" else "-i" for c in bits)  # +i/-i
+        raise ValueError(f"Unknown basis '{basis}'.")
+
+    # ---------- dictionaries ----------
+    def get_probabilities_dict(self, basis: str = "Z") -> dict[str, float]:
+        """
+        Probabilities for measuring in a UNIFORM basis across all qubits.
+        basis ∈ {'Z','X','Y'}; labels are:
+          Z: '0'/'1',  X: '+/-',  Y: '+i'/'-i' per qubit, concatenated.
+        """
+        b = basis.upper()
+
+        # Rotate density matrix to Z-basis frame for the chosen basis: ρ' = U ρ U†
+        U = self._full_basis_op(b)
+        rho_prime = U @ self.rho @ U.conj().T
+        pops = np.real(np.diag(rho_prime))
+
+        probs = {}
         for i, p in enumerate(pops):
-            if not np.isclose(p, 0):
-                b = format(i, f'0{self.num_of_qubits}b')
-                lines.append(f"P(|{b}⟩) = {p:.3f}")
-        return "\n".join(lines) if lines else "all ~0"
+            probs[self._label_bits(i, b)] = float(p)
+        return probs
+
+    # ---------- pretty-printer ---------
+
+    def get_probabilities_str(self, print_zero_probabilities: bool = False, basis: str = "Z") -> str:
+        """
+        Pretty print non-zero probabilities in the chosen basis ('X','Y','Z').
+        """
+        probs = self.get_probabilities_dict(basis)
+        if print_zero_probabilities:
+            lines = [f"P(|{b}⟩) = {p:.5f}" for b, p in probs.items()]
+        else:
+            lines = [f"P(|{b}⟩) = {p:.5f}" for b, p in probs.items() if not np.isclose(p, 0, atol=1e-5)]
+        return "\n".join(lines) if lines else "Invalid state: no nonzero probabilities (check normalization)"
 
     def measure_all(self, num_of_measurements=1, rng=None):
         """

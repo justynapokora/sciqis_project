@@ -2,9 +2,6 @@ import numpy as np
 from utils.gates import GATES, CircuitGate, TWO_QUBITS_GATES, ONE_QUBIT_GATES
 
 
-# TODO enum for gate layer type
-
-
 def sample_theta(rng):
     return rng.uniform(0.0, 2.0 * np.pi)
 

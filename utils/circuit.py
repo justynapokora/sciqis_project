@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 import copy
+from scipy.constants import h, k as kB  # Planck and Boltzmann constants
 
 from utils.gates import CircuitGate, GATES, PARAMETRISED_GATE_SET
 from utils.states import State, DensityState
-from utils.noise_channels import DepolarizingNoise, SPAMNoise, TRCNoise
+from utils.noise_channels import DepolarizingNoise, SPAMNoise, TDCNoise
+from utils.random_gates import resolve_parameters
 
 
 class Circuit:
@@ -15,26 +17,29 @@ class Circuit:
                  rng: np.random.Generator | None = None,
                  depolarizing_noise: DepolarizingNoise | None = None,
                  spam_noise: SPAMNoise | None = None,
-                 trc_noise: TRCNoise | None = None,
+                 tdc_noise: TDCNoise | None = None,
                  ):
+
+        self.rng = rng or np.random.default_rng()
+
         self.initial_state: State = copy.deepcopy(state)
         self.state: State = state
         self.noisy_dm: DensityState = DensityState.from_state(state)
 
-        self.gates: list[list[CircuitGate]] = self.layers_to_timesteps(gates)
+        self.base_gates: list[list[CircuitGate]] = self.layers_to_timesteps(gates)
+        self.gates: list[list[CircuitGate]] = resolve_parameters(self.base_gates, self.rng)
 
         self.depolarizing_noise = depolarizing_noise  # if None then do not add this noise
         self.spam_noise = spam_noise
-        self.trc_noise = trc_noise
-
-        self.measured_qubits: list = []
-
-        self.rng = rng or np.random.default_rng()
+        self.tdc_noise = tdc_noise
 
     def reset_circuit(self):
+        # reset states back to initial state
         self.state = copy.deepcopy(self.initial_state)
         self.noisy_dm = DensityState.from_state(self.initial_state)
-        self.measured_qubits = []
+
+        # reset parametrized gates (sample new parameters for parametrized gates)
+        self.gates: list[list[CircuitGate]] = resolve_parameters(self.base_gates, self.rng)
 
     @staticmethod
     def layers_to_timesteps(gates: list[list[CircuitGate]]) -> list[list[CircuitGate]]:
@@ -96,21 +101,67 @@ class Circuit:
 
         return full0 + full1
 
-    def simulate_circuit(self):
+    def simulate_circuit_n_rounds(self, n: int = 1):
+        """
+        Run the circuit for `n` rounds and save states after each round.
+        The 0th snapshot is the initial state before any round.
+
+        Args:
+            n (int): Number of rounds to run. Must be >= 1.
+
+        Returns:
+            states:       np.ndarray of shape (n+1, dim, 1)   — ideal statevectors
+            noisy_states: np.ndarray of shape (n+1, dim, dim) — noisy density matrices
+        """
+
+        if n < 1:
+            raise ValueError("Number of rounds must be at least 1")
+
+        dim = 2 ** self.state.num_of_qubits
+
+        # Preallocate arrays (include initial snapshot at index 0)
+        states = np.zeros((n + 1, dim, 1), dtype=complex)
+        noisy_states = np.zeros((n + 1, dim, dim), dtype=complex)
+
+        # Save initial state
+        states[0, :, :] = self.state.qubit_vector
+        noisy_states[0, :, :] = self.noisy_dm.rho
+
+        # First round (with SPAM prep)
+        self.simulate_circuit(first_round=True, last_round=(n == 1))
+        states[1, :, :] = self.state.qubit_vector
+        noisy_states[1, :, :] = self.noisy_dm.rho
+
+        # Middle rounds (no first/last)
+        for i in range(2, n):
+            self.simulate_circuit(first_round=False, last_round=False)
+            states[i, :, :] = self.state.qubit_vector
+            noisy_states[i, :, :] = self.noisy_dm.rho
+
+        # Final round (no first, but with last-round SPAM meas)
+        if n > 1:
+            self.simulate_circuit(first_round=False, last_round=True)
+            states[n, :, :] = self.state.qubit_vector
+            noisy_states[n, :, :] = self.noisy_dm.rho
+
+        return states, noisy_states
+
+    def simulate_circuit(self, first_round: bool = True, last_round: bool = True):
+
         n = self.state.num_of_qubits
         # print("=== Starting simulation ===")
         # print(f"Initial state (ideal):  {self.state}")
         # print(f"Initial state (noisy):  {self.noisy_state}")
 
         # --- SPAM preparation as channel on noisy DM (optional) ---
-        if self.spam_noise:
+        if self.spam_noise and first_round:
             for q in range(n):
                 ks = self.spam_noise.kraus_prep(q)
                 self.noisy_dm.apply_1q_channel(ks, q)
 
-            if self.trc_noise:
+            if self.tdc_noise:
                 for q in range(n):
-                    ks = self.trc_noise.kraus_for("SPAM", q)
+                    ks = self.tdc_noise.kraus_for("SPAM", q)
                     self.noisy_dm.apply_1q_channel(ks, q)
 
         # print(f"State (ideal): {self.state}")
@@ -126,8 +177,6 @@ class Circuit:
                 ops = [GATES.I.target_qubit_matrix.copy() for _ in range(n)]
                 for g in layer:
                     Uq = g.gate.target_qubit_matrix
-                    if Uq is None:
-                        Uq = self.get_parameterised_gate_random_matrix(g.gate.name)
                     ops[g.target_qubit] = Uq
 
                 U = np.array([[1]], dtype=complex)
@@ -147,9 +196,9 @@ class Circuit:
                         self.noisy_dm.apply_1q_channel(ks, g.target_qubit)
 
                 # TRC after each gate
-                if self.trc_noise:
+                if self.tdc_noise:
                     for g in layer:
-                        ks = self.trc_noise.kraus_for(g.gate.name, g.target_qubit)
+                        ks = self.tdc_noise.kraus_for(g.gate.name, g.target_qubit)
                         self.noisy_dm.apply_1q_channel(ks, g.target_qubit)
 
             else:
@@ -157,8 +206,6 @@ class Circuit:
                 for g in layer:
                     self.check_gate_validity(g)
                     Uq = g.gate.target_qubit_matrix
-                    if Uq is None:
-                        Uq = self.get_parameterised_gate_random_matrix(g.gate.name)
 
                     if g.gate.num_of_qubits == 1:
                         # ideal
@@ -170,8 +217,8 @@ class Circuit:
                         if self.depolarizing_noise:
                             ks = self.depolarizing_noise.kraus_for_1q(g.gate.name, g.target_qubit)
                             self.noisy_dm.apply_1q_channel(ks, g.target_qubit)
-                        if self.trc_noise:
-                            ks = self.trc_noise.kraus_for(g.gate.name, g.target_qubit)
+                        if self.tdc_noise:
+                            ks = self.tdc_noise.kraus_for(g.gate.name, g.target_qubit)
                             self.noisy_dm.apply_1q_channel(ks, g.target_qubit)
 
                     else:
@@ -187,13 +234,13 @@ class Circuit:
                             ks = self.depolarizing_noise.kraus_for_1q(g.gate.name, g.target_qubit)
                             self.noisy_dm.apply_1q_channel(ks, g.target_qubit)
                         # TRC: independently on both qubits
-                        if self.trc_noise:
+                        if self.tdc_noise:
                             for q in (g.control_qubit, g.target_qubit):
-                                ks = self.trc_noise.kraus_for(g.gate.name, q)
+                                ks = self.tdc_noise.kraus_for(g.gate.name, q)
                                 self.noisy_dm.apply_1q_channel(ks, q)
 
         # --- SPAM measurement channel (optional) ---
-        if self.spam_noise:
+        if self.spam_noise and last_round:
             for q in range(n):
                 ks = self.spam_noise.kraus_meas(q)
                 self.noisy_dm.apply_1q_channel(ks, q)
@@ -201,15 +248,6 @@ class Circuit:
         # finalize
         self.state.normalize_state()
         self.noisy_dm.normalize_dm()
-
-    def get_parameterised_gate_random_matrix(self, gate_name):
-        base = gate_name.split("(", 1)[0]  # e.g. "Rx" from "Rx" or "Rx(…)"
-        init_function = GATES.INIT_PARAMETRIZED_GATE_MATRIX_FUNC_DICT.get(base)
-        if init_function is None:
-            raise ValueError(f"No initialization function for param gate '{gate_name}'")
-
-        theta = self.rng.uniform(0.0, 2.0 * np.pi)
-        return init_function(theta)
 
     def check_gate_validity(self, g: CircuitGate):
         max_qubit_val = g.target_qubit
