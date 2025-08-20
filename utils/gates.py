@@ -15,6 +15,7 @@ TWO_QUBITS_GATES = np.concatenate([TWO_QUBITS_FIXED_GATE_SET, TWO_QUBITS_PARAMET
 
 @dataclass
 class Gate:
+    """Static description of a quantum gate (name, number of qubits, and matrices)."""
     name: str
     num_of_qubits: int
     target_qubit_matrix: np.ndarray
@@ -24,13 +25,13 @@ class Gate:
 
 @dataclass
 class CircuitGate:
+    """A gate placed on specific qubits within a circuit (target and optional control)."""
     gate: Gate
     target_qubit: int
     control_qubit: int | None = None
 
     def __post_init__(self):
-
-        # Validate the number of target qubits matches gate's definition
+        """Validate that qubit indices are consistent with the gate’s number of qubits."""
         if self.target_qubit is None:
             raise ValueError(
                 f"Gate '{self.gate}' requires {self.gate.num_of_qubits} qubit(s), "
@@ -53,6 +54,7 @@ class CircuitGate:
 
 
 class Gates:
+    """Class for standard 1q/2q gates, including parameterized and controlled variants."""
     def __init__(self):
         self.I = self.init_I()
 
@@ -136,6 +138,7 @@ class Gates:
     #### Definitions
     @staticmethod
     def init_I() -> Gate:
+        """Identity gate."""
         return Gate(
             name="I",
             target_qubit_matrix=np.array([
@@ -147,6 +150,7 @@ class Gates:
 
     @staticmethod
     def init_X() -> Gate:
+        """Pauli-X gate."""
         return Gate(
             name="X",
             num_of_qubits=1,
@@ -158,6 +162,7 @@ class Gates:
 
     @staticmethod
     def init_Y() -> Gate:
+        """Pauli-Y gate."""
         return Gate(
             name="Y",
             num_of_qubits=1,
@@ -169,6 +174,7 @@ class Gates:
 
     @staticmethod
     def init_Z() -> Gate:
+        """Pauli-Z gate."""
         return Gate(
             name="Z",
             num_of_qubits=1,
@@ -180,6 +186,7 @@ class Gates:
 
     @staticmethod
     def init_H() -> Gate:
+        """Hadamard gate."""
         return Gate(
             name="H",
             num_of_qubits=1,
@@ -191,6 +198,7 @@ class Gates:
 
     @staticmethod
     def init_S() -> Gate:
+        """Phase-S gate."""
         return Gate(
             name="S",
             num_of_qubits=1,
@@ -202,6 +210,7 @@ class Gates:
 
     @staticmethod
     def init_T() -> Gate:
+        """T gate (π/8 phase)."""
         return Gate(
             name="T",
             num_of_qubits=1,
@@ -213,6 +222,7 @@ class Gates:
 
     @staticmethod
     def _rx_matrix(theta):
+        """Rotation-X unitary for angle θ."""
         sin = np.sin(theta / 2)
         cos = np.cos(theta / 2)
         return np.array([
@@ -222,6 +232,7 @@ class Gates:
 
     @staticmethod
     def _ry_matrix(theta):
+        """Rotation-Y unitary for angle θ."""
         sin = np.sin(theta / 2)
         cos = np.cos(theta / 2)
         return np.array([
@@ -231,12 +242,14 @@ class Gates:
 
     @staticmethod
     def _rz_matrix(theta):
+        """Rotation-Z unitary for angle θ."""
         return np.array([
             [np.exp(-1j * theta / 2), 0],
             [0, np.exp(1j * theta / 2)]
         ]).astype(complex)
 
     def init_Rx(self, theta: float | None = None) -> Gate:
+        """Parameterized Rx gate (placeholder if θ is None)."""
         if theta is None:
             name = "Rx"
             matrix = None
@@ -251,6 +264,7 @@ class Gates:
         )
 
     def init_Ry(self, theta: float | None = None) -> Gate:
+        """Parameterized Ry gate (placeholder if θ is None)."""
         if theta is None:
             name = "Ry"
             matrix = None
@@ -265,6 +279,7 @@ class Gates:
         )
 
     def init_Rz(self, theta: float | None = None) -> Gate:
+        """Parameterized Rz gate (placeholder if θ is None)."""
         if theta is None:
             name = "Rz"
             matrix = None
@@ -279,7 +294,8 @@ class Gates:
         )
 
     @staticmethod
-    def init_Rk(k) -> Gate:  # dyadic rational phase gate (Fourier transform)
+    def init_Rk(k) -> Gate:  # dyadic rational phase gate (for Fourier transform)
+        """Fixed R_k phase gate (dyadic rational phase)."""
         return Gate(
             name=f"R{k}",
             num_of_qubits=1,
@@ -291,6 +307,7 @@ class Gates:
 
     @staticmethod
     def init_U(gate_matrix: np.ndarray) -> Gate:
+        """Arbitrary single-qubit unitary defined by a 2×2 matrix."""
         return Gate(
             name=f"U{gate_matrix.tolist()}",
             num_of_qubits=1,
@@ -298,8 +315,8 @@ class Gates:
         )
 
     ### two qubits
-    # @staticmethod
     def init_CNOT(self) -> Gate:
+        """Controlled-NOT gate (uses X as the target operation with P0/P1 projectors)."""
         return Gate(
             name="CNOT",
             num_of_qubits=2,
@@ -309,6 +326,7 @@ class Gates:
         )
 
     def init_CZ(self) -> Gate:
+        """Controlled-Z gate (uses Z as the target operation with P0/P1 projectors)."""
         return Gate(
             name="CZ",
             num_of_qubits=2,
@@ -318,6 +336,7 @@ class Gates:
         )
 
     def init_CRx(self, theta: float | None = None) -> Gate:
+        """Controlled-Rx gate (placeholder if θ is None)."""
         if theta is None:
             name = "CRx"
             matrix = None
@@ -366,6 +385,7 @@ class Gates:
         )
 
     def init_CRk(self, k: int) -> Gate:
+        """Controlled-R_k phase gate."""
         return Gate(
             name=f"CR{k}",
             num_of_qubits=2,
@@ -375,6 +395,7 @@ class Gates:
         )
 
     def init_CU(self, gate_matrix: np.ndarray) -> Gate:
+        """Controlled arbitrary single-qubit unitary."""
         return Gate(
             name=f"CU{gate_matrix.tolist()}",
             num_of_qubits=2,
@@ -385,6 +406,7 @@ class Gates:
 
     @staticmethod
     def init_RESET() -> Gate:
+        """Reset placeholder gate (used for processing; no matrix action)."""
         return Gate(
             name="RESET",
             num_of_qubits=1,
@@ -393,4 +415,3 @@ class Gates:
 
 
 GATES = Gates()
-

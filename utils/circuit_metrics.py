@@ -26,17 +26,14 @@ def fidelity_mixed_mixed(rho: np.ndarray, sigma: np.ndarray) -> float:
 
 
 def _sqrt_psd(mat: np.ndarray) -> np.ndarray:
-    """Matrix square root of PSD Hermitian"""
+    """Matrix square root of a PSD Hermitian matrix."""
     vals, vecs = np.linalg.eigh((mat + mat.conj().T) / 2.0)  # hermitize
     vals = np.clip(vals, 0, None)
     return (vecs * np.sqrt(vals)) @ vecs.conj().T
 
 
 def fidelity(state1: State | DensityState, state2: State | DensityState) -> float:
-    """
-    Fidelity between two quantum states.
-    state1, state2: State or DensityState
-    """
+    """Fidelity between two quantum states (pure or mixed), with type-based dispatch."""
     if isinstance(state1, State) and not isinstance(state1, DensityState) and \
             isinstance(state2, State) and not isinstance(state2, DensityState):
         return fidelity_pure_pure(state1.qubit_vector, state2.qubit_vector)
@@ -54,29 +51,20 @@ def fidelity(state1: State | DensityState, state2: State | DensityState) -> floa
 
 
 def fidelities_from_arrays(states: np.ndarray, noisy_states: np.ndarray) -> np.ndarray:
-    """
-    Vectorized fidelities between pure states and noisy density matrices.
-
-    Args:
-        states:       (n+1, dim, 1) array of pure state vectors
-        noisy_states: (n+1, dim, dim) array of density matrices
-
-    Returns:
-        fidelities: (n+1,) array of fidelities
-    """
+    """Vectorized fidelities between pure states and density matrices."""
     v = states[..., 0]  # (n+1, dim)
     return np.real(np.einsum('bi,bij,bj->b', v.conj(), noisy_states, v))
 
 
 # ---------- Haar fidelity distribution helpers ----------
 def haar_fidelity_pdf(F: np.ndarray, dim: int) -> np.ndarray:
-    """PDF of fidelity between two Haar-random pure states in dimension dim=2^n."""
+    """PDF of fidelities between two Haar-random pure states in dimension 2^n."""
     N = dim
     return (N - 1) * np.power(1 - np.clip(F, 0.0, 1.0), N - 2)
 
 
 def haar_bin_masses(bin_edges: np.ndarray, dim: int) -> np.ndarray:
-    """Haar probability mass in each bin via CDF differences."""
+    """Haar bin probabilities via CDF differences on [0,1]."""
     N = dim
     a = bin_edges[:-1]
     b = bin_edges[1:]
@@ -86,11 +74,7 @@ def haar_bin_masses(bin_edges: np.ndarray, dim: int) -> np.ndarray:
 
 # ---------- Pairwise fidelities from pure states ----------
 def pairwise_fidelities_consecutive(states_1c: np.ndarray) -> np.ndarray:
-    """
-    Consecutive-pair fidelities for a single circuit's pure state samples.
-    states_1c: (S, dim, 1) or (S, dim) complex array of statevectors.
-    Returns: (S//2,) array of |<psi|phi>|^2 for pairs (0,1), (2,3), ...
-    """
+    """Fidelities for consecutive pure-state pairs (0,1), (2,3), … for one circuit."""
     S, dim = states_1c.shape[0], states_1c.shape[1]
     # reshape to 2 per pair
     K = (S // 2) * 2
@@ -104,10 +88,7 @@ def pairwise_fidelities_consecutive(states_1c: np.ndarray) -> np.ndarray:
 
 
 def pairwise_uhlmann_fidelities_consecutive(rhos_1c: np.ndarray) -> np.ndarray:
-    """
-    Consecutive-pair Uhlmann fidelities for one circuit’s density matrices.
-    rhos_1c: (S, dim, dim). Returns (S//2,) with pairs (0,1), (2,3), ...
-    """
+    """Uhlmann fidelities for consecutive density-matrix pairs (0,1), (2,3), … for one circuit."""
     S = rhos_1c.shape[0]
     K = (S // 2) * 2
     rhos = rhos_1c[:K].reshape(-1, 2, rhos_1c.shape[1], rhos_1c.shape[2])
@@ -119,16 +100,7 @@ def pairwise_uhlmann_fidelities_consecutive(rhos_1c: np.ndarray) -> np.ndarray:
 
 # --- entropy ---
 def von_neumann_entropy(state: State | DensityState, atol: float = 1e-12) -> float:
-    """
-    Von Neumann entropy S(ρ) = -Tr(ρ log₂ ρ), measured in bits.
-
-    Args:
-        state: A State (pure) or DensityState (mixed).
-        atol:  Numerical tolerance for treating small eigenvalues as 0.
-
-    Returns:
-        float: Entropy in bits.
-    """
+    """Von Neumann entropy S(ρ) = −Tr(ρ log₂ ρ) in bits."""
     # --- Build density matrix ρ ---
     if isinstance(state, DensityState):
         rho = np.asarray(state.rho, dtype=complex)
@@ -159,6 +131,7 @@ def von_neumann_entropy(state: State | DensityState, atol: float = 1e-12) -> flo
 
 
 def entropy_density_matrix(rho, atol):
+    """Helper: von Neumann entropy (bits) for a single density matrix."""
     rho = 0.5 * (rho + rho.conj().T)
     rho = rho / np.trace(rho)
     evals = np.linalg.eigvalsh(rho).real
@@ -171,15 +144,7 @@ def entropy_density_matrix(rho, atol):
 
 def von_neumann_entropies_arrays(states: np.ndarray, noisy_states: np.ndarray, atol: float = 1e-12) -> tuple[
     np.ndarray, np.ndarray]:
-    """
-    Vectorized-style von Neumann entropies for states and noisy density matrices.
-    - states:       (n+1, dim, 1) array of pure statevectors
-    - noisy_states: (n+1, dim, dim) array of density matrices
-
-    Returns:
-        entropies_states: (n+1,) zeros (pure states are entropy 0)
-        entropies_noisy:  (n+1,) von Neumann entropies (bits)
-    """
+    """Vectorized entropies: zeros for pure states and S(ρ) for noisy density matrices."""
     n_plus_1 = states.shape[0]
 
     # --- Pure states → always 0 entropy ---
@@ -195,9 +160,7 @@ def von_neumann_entropies_arrays(states: np.ndarray, noisy_states: np.ndarray, a
 def frame_potentials_from_samples(states: np.ndarray,
                                   noisy_states: np.ndarray | None = None,
                                   t_max: int = 4) -> tuple[np.ndarray, np.ndarray | None, np.ndarray]:
-    """
-    Estimate frame potentials F^{(t)} = E[F^t] for t=1..t_max.
-    """
+    """Estimate frame potentials F^{(t)}=E[F^t] for t=1..t_max (ideal, optional noisy, and Haar baseline)."""
     C, S, dim = states.shape[0], states.shape[1], states.shape[2]
     # Pairwise fidelities for each circuit (consecutive pairs)
     fids_pure = [pairwise_fidelities_consecutive(states[c].reshape(S, dim)) for c in range(C)]
@@ -231,18 +194,7 @@ def kl_expressibility_one_circuit(states_1c: np.ndarray,
                                   noisy_states_1c: np.ndarray | None = None,
                                   num_bins: int = 75,
                                   log_base: str = "e") -> tuple[float, float | None]:
-    """
-    Binned KL expressibility against Haar for a SINGLE circuit.
-
-    Args:
-        states_1c:      (S, dim, 1) or (S, dim) pure statevectors (ideal).
-        noisy_states_1c:(S, dim, dim) density matrices (optional).
-        num_bins:       number of bins on [0,1].
-        log_base:       "e" (nats) or "2" (bits).
-
-    Returns:
-        (KL_ideal, KL_noisy) — KL_noisy is None if noisy_states_1c is None.
-    """
+    """Histogram-based KL expressibility to Haar for a single circuit (ideal and optional noisy)."""
     # Pairwise fidelities (your functions)
     fids_ideal = pairwise_fidelities_consecutive(states_1c)
     fids_noisy = (pairwise_uhlmann_fidelities_consecutive(noisy_states_1c)
@@ -271,10 +223,7 @@ def kl_expressibility_one_circuit(states_1c: np.ndarray,
 
 
 def _rho_j_from_dm(rho: np.ndarray, n: int, j: int) -> np.ndarray:
-    """
-    Reduced 1-qubit density matrix for qubit j from an n-qubit density matrix rho.
-    rho: (2^n, 2^n) complex, Hermitian, trace ~ 1.
-    """
+    """One-qubit reduced density matrix ρ_j from an n-qubit ρ."""
     R = rho.reshape((2,) * n * 2)  # (a0,...,a_{n-1}, b0,...,b_{n-1})
     # iteratively trace out all k != j; trace high-to-low to keep axis indices stable
     for k in range(n - 1, -1, -1):
@@ -293,14 +242,7 @@ def _rho_j_from_dm(rho: np.ndarray, n: int, j: int) -> np.ndarray:
 
 # ---------- entangling capability (ideal / noisy) ----------
 def entangling_capability_ideal_from_states(states_1c: np.ndarray) -> float:
-    """
-    Entangling capability for a SINGLE circuit (ideal runs).
-    states_1c: (S, dim, 1) or (S, dim) array of pure statevectors.
-    Returns: scalar Ent_ideal = average over samples of Q(|psi⟩).
-
-    Faster: batch-normalize once; for each qubit use a 2×m view A with rows r0,r1
-    and purity = ||r0||^4 + ||r1||^4 + 2|⟨r0|r1⟩|^2 (avoids forming ρ_j and ρ_j²).
-    """
+    """Meyer–Wallach entangling capability (average Q) from pure-state samples for one circuit."""
     S, dim = states_1c.shape[0], states_1c.shape[1]
     n = int(np.log2(dim))
     if n <= 1:
@@ -332,13 +274,7 @@ def entangling_capability_ideal_from_states(states_1c: np.ndarray) -> float:
 
 
 def entangling_capability_noisy_from_density(noisy_states_1c: np.ndarray) -> float:
-    """
-    Entangling capability proxy for a SINGLE circuit (noisy runs, mixed outputs).
-    noisy_states_1c: (S, dim, dim) array of density matrices.
-    Returns: scalar Ent_noisy = average over samples of \tilde Q(ρ).
-
-    Faster: batch hermitize + normalize once; use einsum for Tr(ρ_j^2).
-    """
+    """Noisy entangling capability proxy (average \u007EQ) from density-matrix samples for one circuit."""
     S, dim = noisy_states_1c.shape[0], noisy_states_1c.shape[1]
     n = int(np.log2(dim))
     if n <= 1:
@@ -362,4 +298,3 @@ def entangling_capability_noisy_from_density(noisy_states_1c: np.ndarray) -> flo
             acc += (1.0 - purity)
         total += scale * acc
     return total / S
-

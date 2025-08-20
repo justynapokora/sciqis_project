@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
 from ipywidgets import interact, IntSlider
 
 from utils.circuit_metrics import haar_fidelity_pdf, haar_bin_masses, pairwise_fidelities_consecutive, \
@@ -247,6 +248,7 @@ def _draw_unit_sphere(ax):
     """
     Wireframe + axes + labels for a Bloch sphere.
     """
+    # --- sphere wireframe (radius = 1) ---
     u = np.linspace(0, 2 * np.pi, 60)
     v = np.linspace(0, np.pi, 30)
     x = np.outer(np.cos(u), np.sin(v))
@@ -254,15 +256,25 @@ def _draw_unit_sphere(ax):
     z = np.outer(np.ones_like(u), np.cos(v))
     ax.plot_wireframe(x, y, z, linewidth=0.5, alpha=0.25)
 
-    # Axes
-    ax.plot([-1, 1], [0, 0], [0, 0], linewidth=1, alpha=0.5)
-    ax.plot([0, 0], [-1, 1], [0, 0], linewidth=1, alpha=0.5)
-    ax.plot([0, 0], [0, 0], [-1, 1], linewidth=1, alpha=0.5)
+    # --- axis lines slightly longer than the sphere ---
+    axis_pad = 0.08
+    L = 1.0 + float(axis_pad)
+    ax.plot([-L, L], [0, 0], [0, 0], linewidth=1, alpha=0.5)  # X
+    ax.plot([0, 0], [-L, L], [0, 0], linewidth=1, alpha=0.5)  # Y
+    ax.plot([0, 0], [0, 0], [-L, L], linewidth=1, alpha=0.5)  # Z
 
     ax.set_box_aspect((1, 1, 1))
-    ax.set_xlim(-1, 1)
-    ax.set_ylim(-1, 1)
-    ax.set_zlim(-1, 1)
+    ax.set_xlim(-L, L)
+    ax.set_ylim(-L, L)
+    ax.set_zlim(-L, L)
+
+    # centered axis labels (with white outline for readability)
+    label_kwargs = dict(ha="center", va="center", fontsize=10, color="black",
+                        path_effects=[pe.withStroke(linewidth=2.5, foreground="white")])
+    label_pos = 0.75
+    ax.text(label_pos, 0.0, 0.0, "X", zorder=10, clip_on=False, **label_kwargs)
+    ax.text(0.0, label_pos, 0.0, "Y", zorder=10, clip_on=False, **label_kwargs)
+    ax.text(0.0, 0.0, label_pos, "Z", zorder=10, clip_on=False, **label_kwargs)
 
     ax.set_xlabel('X')
     ax.set_ylabel('Y')

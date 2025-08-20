@@ -6,6 +6,7 @@ from utils.gates import CircuitGate
 
 
 def print_circuit_gates_info(circuit_gates: list[list[CircuitGate]]):
+    """Print a readable summary of each layer’s gates and their qubit indices."""
     for layer in circuit_gates:
         print("-" * 30)
         for cg in layer:
@@ -157,6 +158,7 @@ def get_circuit_plot(
         tdc_noise=False,
         plot_barriers=True
 ):
+    """Render the circuit to a Matplotlib figure using Qiskit’s drawer."""
     qc = build_qiskit_circuit(circuit_gates, num_qubits, depolarizing_noise, spam_noise, tdc_noise)
     fig = qc.draw(
         output="mpl",  # returns a Matplotlib Figure
@@ -176,6 +178,7 @@ def save_circuit_drawing(
         tdc_noise=False,
         plot_barriers=True
 ):
+    """Save a static circuit diagram (Matplotlib) to disk."""
     qc = build_qiskit_circuit(circuit_gates, num_qubits, depolarizing_noise, spam_noise, tdc_noise)
 
     # Draw with Matplotlib and save

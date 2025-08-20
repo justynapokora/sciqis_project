@@ -27,6 +27,7 @@ class State:
         self.num_of_qubits = int(np.log2(size))
 
     def __str__(self):
+        """Compact ket expansion, skipping zero amplitudes."""
         # Work with a 1D view for iteration/printing
         flat = self.qubit_vector.ravel()
         terms = []
@@ -58,7 +59,6 @@ class State:
             U = np.kron(op, U)
         return U
 
-    # ---------- dictionaries ----------
     def get_probabilities_dict(self, basis: str = "Z") -> dict[str, float]:
         """
         Probabilities for measuring in a UNIFORM basis across all qubits.
@@ -78,7 +78,6 @@ class State:
         labels = [_label_bits(self.num_of_qubits, i, b) for i in range(psi_prime.size)]
         return dict(zip(labels, probs.astype(float)))
 
-    # ---------- pretty-printers ----------
     def get_probabilities_str(self, print_zero_probabilities: bool = False, basis: str = "Z") -> str:
         """Pretty print non-zero probabilities for basis ∈ {'X','Y','Z'}."""
         probs = self.get_probabilities_dict(basis)
@@ -89,11 +88,13 @@ class State:
         return "\n".join(lines) if lines else "Invalid state: no nonzero probabilities (check normalization)"
 
     def normalize_state(self):
+        """Normalize the state vector to unit norm."""
         norm = np.linalg.norm(self.qubit_vector)
         if norm != 0:
             self.qubit_vector /= norm
 
     def measure_all(self, num_of_measurements=1, rng: np.random.Generator | None = None):
+        """Sample bitstrings from |ψ|² in the computational basis."""
         if not rng:
             rng = np.random.default_rng()
 
@@ -150,12 +151,7 @@ class State:
 
 class DensityState:
     """
-    Minimal density-matrix holder for the noisy path.
-    Provides:
-      - apply_unitary(U)
-      - apply_1q_channel(kraus_list, target_qubit)
-      - normalize_dm()
-      - pretty printing of populations (optional)
+    Density-matrix holder for the noisy states.
     """
 
     def __init__(self, rho: np.ndarray):
@@ -169,6 +165,7 @@ class DensityState:
 
     @classmethod
     def from_state(cls, state: State) -> DensityState:
+        """Construct ρ = |ψ⟩⟨ψ| from a pure state."""
         # state.qubit_vector is (2^n, 1)
         psi = state.qubit_vector
         rho = psi @ psi.conj().T
@@ -179,9 +176,6 @@ class DensityState:
         Pretty-print:
           - If ρ is (numerically) pure: print the ket expansion (like State.__str__).
           - Else: print a sparse operator expansion Σ_ij ρ_ij |i><j|.
-        Args:
-          tol: threshold for considering values as zero / purity ≈ 1
-          max_terms: cap number of printed |i><j| terms (to avoid huge outputs)
         """
         # --- Try pure detection via eigen-decomposition ---
         # eigh is Hermitian-safe; small negative eigvals can appear numerically
@@ -232,7 +226,7 @@ class DensityState:
         return " + ".join(lines) if lines else "0"
 
     def apply_unitary(self, U: np.ndarray):
-        # ρ ← U ρ U†
+        """Apply a full-system unitary: ρ ← U ρ U†."""
         self.rho = U @ self.rho @ U.conj().T
 
     def _lift_1q_op(self, K1: np.ndarray, q: int) -> np.ndarray:
@@ -249,6 +243,7 @@ class DensityState:
         return full
 
     def apply_1q_channel(self, kraus_list: list[np.ndarray], q: int):
+        """Apply a 1-qubit CPTP channel on qubit q via Kraus operators."""
         # ρ ← Σ K ρ K†
         accum = np.zeros_like(self.rho, dtype=complex)
 
@@ -259,7 +254,7 @@ class DensityState:
         self.rho = accum
 
     def normalize_dm(self):
-        # enforce Hermiticity and unit trace
+        """Hermitize and renormalize ρ to unit trace."""
         self.rho = 0.5 * (self.rho + self.rho.conj().T)
         tr = np.trace(self.rho)
         if tr != 0:
@@ -295,8 +290,6 @@ class DensityState:
             probs[_label_bits(self.num_of_qubits, i, b)] = float(p)
         return probs
 
-    # ---------- pretty-printer ---------
-
     def get_probabilities_str(self, print_zero_probabilities: bool = False, basis: str = "Z") -> str:
         """
         Pretty print non-zero probabilities in the chosen basis ('X','Y','Z').
@@ -326,7 +319,7 @@ class DensityState:
         return rng.choice(basis_states, size=num_of_measurements, p=pops)
 
 
-## functions common for state and density state
+### functions common for state and density state
 def _oneq_basis_op(basis_char: str) -> np.ndarray:
     """Single-qubit unitary that maps a B-basis measurement to Z-basis measurement."""
     b = basis_char.upper()
@@ -357,6 +350,7 @@ def _label_bits(num_of_qubits: int, index: int, basis: str) -> str:
 
 
 class States:
+    """Convenience container for common 1-qubit and 2-qubit basis/Bell states."""
     def __init__(self):
         sqrt2_inv = 1 / np.sqrt(2)
 
@@ -376,6 +370,7 @@ class States:
 
     @staticmethod
     def generate_zero_n_qubit_state(n: int) -> State:
+        """|0⟩^{⊗ n} as a State object."""
         if n <= 0:
             raise ValueError("n must be >= 0")
 
@@ -385,6 +380,7 @@ class States:
 
     @staticmethod
     def generate_state(states: [State]) -> State:
+        """Kronecker product of provided single-/multi-qubit State objects."""
         if not states:
             raise ValueError("states must be a non-empty list of State")
 

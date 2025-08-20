@@ -6,34 +6,41 @@ from utils.gates import ONE_QUBIT_GATES, TWO_QUBITS_GATES, CircuitGate, GATES
 
 
 def base_name(name: str) -> str:
+    """Return the gate’s base token without parameters (e.g., 'Rx(1.23)' → 'Rx')."""
     return name.split("(", 1)[0]
 
 
 # (i) depolarizing (gate infidelities)
 @dataclass
 class DepolarizingNoise:
+    """Per-gate depolarizing channel with default 1q/2q rates and per-gate overrides."""
     p1_1q: float = 1e-3  # default 1q depol prob per gate
     p1_2q: float = 5e-3  # default 2q depol prob per gate
     overrides: dict[str, float] = field(default_factory=dict)  # e.g. {"CNOT": 0.02, "Rz": 5e-4}
 
     @staticmethod
     def _validate(p: float):
+        """Raise if probability is outside [0, 1]."""
         if not (0.0 <= p <= 1.0):
             raise ValueError(f"Probability must be in [0,1], got {p}")
 
     def set_default_1q(self, p: float):
+        """Set the default depolarizing probability for 1-qubit gates."""
         self._validate(p)
         self.p1_1q = p
 
     def set_default_2q(self, p: float):
+        """Set the default depolarizing probability for 2-qubit gates."""
         self._validate(p)
         self.p1_2q = p
 
     def set_gate(self, gate: str, p: float):
+        """Override the depolarizing probability for a specific gate name."""
         self._validate(p)
         self.overrides[gate] = p
 
     def rate_for_gate(self, gate_name: str) -> float:
+        """Lookup the depolarizing probability for a gate (with base-name parsing)."""
         b = base_name(gate_name)
         if b in self.overrides:
             return self.overrides[b]
@@ -48,6 +55,7 @@ class DepolarizingNoise:
 
     # ---  Kraus builders (1-qubit) ---
     def kraus_for_1q(self, gate_name: str, qubit: int) -> list[np.ndarray]:
+        """One-qubit depolarizing channel Kraus operators after `gate_name`."""
         p = self.rate_for_gate(gate_name)
         if p <= 0.0:
             return [np.eye(2, dtype=complex)]
@@ -63,6 +71,7 @@ class DepolarizingNoise:
 # (ii) SPAM: state preparation & measurement X-flip errors
 @dataclass
 class SPAMNoise:
+    """Simple SPAM X-flip error model with per-qubit overrides (prep and measurement)."""
     # defaults if a qubit doesn't have an override
     p_prep_default: float = 1e-3  # 0.1%       # probability that preparation flips (X) the intended state
     p_meas_default: float = 2e-2  # 2%         # probability that a measurement reports X-flipped outcome
@@ -73,34 +82,42 @@ class SPAMNoise:
 
     @staticmethod
     def _validate(p: float):
+        """Raise if probability is outside [0, 1]."""
         if not (0.0 <= p <= 1.0):
             raise ValueError(f"Probability must be in [0,1], got {p}")
 
     # --- mutators
     def set_default_prep(self, p: float):
+        """Set the default preparation X-flip probability."""
         self._validate(p)
         self.p_prep_default = p
 
     def set_default_meas(self, p: float):
+        """Set the default measurement X-flip probability."""
         self._validate(p)
         self.p_meas_default = p
 
     def set_prep_qubit(self, q: int, p: float):
+        """Override preparation error probability for a given qubit."""
         self._validate(p)
         self.prep_overrides[q] = p
 
     def set_meas_qubit(self, q: int, p: float):
+        """Override measurement error probability for a given qubit."""
         self._validate(p)
         self.meas_overrides[q] = p
 
     # --- accessors you can call where you apply prep/measure
     def p_prep(self, qubit: int) -> float:
+        """Get the preparation error probability for `qubit`."""
         return self.prep_overrides.get(qubit, self.p_prep_default)
 
     def p_meas(self, qubit: int) -> float:
+        """Get the measurement error probability for `qubit`."""
         return self.meas_overrides.get(qubit, self.p_meas_default)
 
     def sample_prep_error(self, qubit: int, rng: np.random.Generator) -> CircuitGate | None:
+        """Sample a preparation X error; returns an X gate or None."""
         p = self.p_prep(qubit)
         if rng.random() < p:
             return CircuitGate(GATES.X, target_qubit=qubit)
@@ -108,6 +125,7 @@ class SPAMNoise:
 
     # --- Kraus builders ---
     def kraus_prep(self, qubit: int) -> list[np.ndarray]:
+        """Kraus operators for the preparation X-flip channel."""
         p = self.p_prep(qubit)
         s0, s1 = np.sqrt(1.0 - p), np.sqrt(p)
         I = np.eye(2, dtype=complex)
@@ -115,6 +133,7 @@ class SPAMNoise:
         return [s0 * I, s1 * X]
 
     def kraus_meas(self, qubit: int) -> list[np.ndarray]:
+        """Kraus operators for the measurement X-flip channel."""
         p = self.p_meas(qubit)
         s0, s1 = np.sqrt(1.0 - p), np.sqrt(p)
         I = np.eye(2, dtype=complex)
@@ -170,6 +189,7 @@ class TDCNoise:
     temp_overrides: dict[int, float] = field(default_factory=dict)
 
     def __post_init__(self):
+        """Populate default gate durations if not provided."""
         if not self.gate_durations:
             self.gate_durations = {
                 # single-qubit
@@ -185,36 +205,46 @@ class TDCNoise:
 
     # ---------- setters ----------
     def set_T1(self, q: int, T1: float):
+        """Override T1 for qubit q."""
         self.T1_overrides[q] = float(T1)
 
     def set_T2(self, q: int, T2: float):
+        """Override T2 for qubit q (clamped internally to ≤ 2*T1)."""
         self.T2_overrides[q] = float(T2)
 
     def set_frequency(self, q: int, f_hz: float):
+        """Override qubit transition frequency (Hz)."""
         self.freq_overrides[q] = float(f_hz)
 
     def set_temperature(self, q: int, T_K: float):
+        """Override qubit temperature (K)."""
         self.temp_overrides[q] = float(T_K)
 
     def set_gate_duration(self, gate: str, seconds: float):
+        """Set the duration (s) for a given gate name (base token)."""
         self.gate_durations[base_name(gate)] = float(seconds)
 
     # ---------- accessors ----------
     def _T1(self, q: int) -> float:
+        """Effective T1 for qubit q (override or default)."""
         return self.T1_overrides.get(q, self.T1_default)
 
     def _T2(self, q: int) -> float:
+        """Effective T2 for qubit q, clamped to ≤ 2*T1."""
         T1 = self._T1(q)
         T2 = self.T2_overrides.get(q, self.T2_default)
         return min(T2, 2.0 * T1)
 
     def _freq(self, q: int) -> float:
+        """Effective frequency (Hz) for qubit q."""
         return self.freq_overrides.get(q, self.f_default)
 
     def _temp(self, q: int) -> float:
+        """Effective temperature (K) for qubit q."""
         return self.temp_overrides.get(q, self.temp_default)
 
     def _Tg(self, gate_name: str) -> float:
+        """Gate duration (s) for the provided gate name (base token)."""
         return self.gate_durations.get(base_name(gate_name), 0.0)
 
     @staticmethod
@@ -232,9 +262,7 @@ class TDCNoise:
 
     # ---------- main ----------
     def kraus_for(self, gate_name: str, qubit: int) -> list[np.ndarray]:
-        """
-        Return Kraus operators for thermal decoherence on `qubit` after `gate_name`.
-        """
+        """Kraus operators for thermal decoherence on a qubit after a given gate."""
         Tg = self._Tg(gate_name)
         if Tg <= 0.0:
             return [np.eye(2, dtype=complex)]

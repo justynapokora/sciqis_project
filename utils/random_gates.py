@@ -3,6 +3,7 @@ from utils.gates import GATES, CircuitGate, TWO_QUBITS_GATES, ONE_QUBIT_GATES
 
 
 def sample_theta(rng):
+    """Sample a random rotation angle θ uniformly from [0, 2π)."""
     return rng.uniform(0.0, 2.0 * np.pi)
 
 
@@ -26,6 +27,7 @@ def random_pairs(rng, n: int) -> tuple:
 
 
 def sample_1q_gates(rng, num_of_qubits: int, repeats: int, gate_set: np.ndarray) -> list[list[CircuitGate]]:
+    """Sample layers of 1-qubit gates (one per qubit) for a given number of repeats."""
     gates = rng.choice(gate_set, size=repeats * num_of_qubits, replace=True)
     gates = gates.reshape(repeats, num_of_qubits)
 
@@ -45,6 +47,7 @@ def sample_1q_gates(rng, num_of_qubits: int, repeats: int, gate_set: np.ndarray)
 
 
 def sample_2q_gates(rng, num_of_qubits: int, repeats: int, gate_set: np.ndarray) -> list[list[CircuitGate]]:
+    """Sample layers of 2-qubit gates on disjoint random pairs; leftover qubit (if any) gets I."""
     circuit_gates: list[list[CircuitGate]] = []
 
     if num_of_qubits < 2 or repeats <= 0:
@@ -128,6 +131,7 @@ def sample_random_gates(
         rng: np.random.Generator | None = None
 
 ):
+    """Generate a multi-layer random circuit."""
     if not rng:
         rng = np.random.default_rng()
 
@@ -191,4 +195,3 @@ def resolve_parameters(
         new_circuit_gates.append(new_layer)
 
     return new_circuit_gates
-

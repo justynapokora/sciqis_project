@@ -3,13 +3,26 @@ from __future__ import annotations
 import numpy as np
 import copy
 
-from utils.gates import CircuitGate, GATES, PARAMETRISED_GATE_SET
+from utils.gates import CircuitGate, GATES
 from utils.states import State, DensityState
 from utils.noise_channels import DepolarizingNoise, SPAMNoise, TDCNoise
 from utils.random_gates import resolve_parameters
 
 
 class Circuit:
+    """
+    Simulator for parameterized quantum circuits (PQCs) with optional noise.
+
+    Maintains both an ideal statevector (`State`) and a noisy density matrix
+    (`DensityState`). Gates may be parameterized; parameters are sampled via
+    `resolve_parameters` on initialization and whenever the circuit is reset.
+
+    Noise model support:
+        - DepolarizingNoise (per gate/qubit as used in the paper)
+        - SPAMNoise (preparation/measurement channels)
+        - TDCNoise (time-dependent channel, applied after gates or SPAM steps)
+    """
+
     def __init__(self,
                  state: State,
                  gates: list[list[CircuitGate]],
@@ -18,6 +31,10 @@ class Circuit:
                  spam_noise: SPAMNoise | None = None,
                  tdc_noise: TDCNoise | None = None,
                  ):
+        """
+        Initialize a circuit with an initial state, a layered gate list,
+        and optional noise channels.
+        """
 
         self.rng = rng or np.random.default_rng()
 
@@ -33,6 +50,10 @@ class Circuit:
         self.tdc_noise = tdc_noise
 
     def reset_circuit(self):
+        """
+        Reset the circuit to the initial state and resample gate parameters.
+        """
+
         # reset states back to initial state
         self.state = copy.deepcopy(self.initial_state)
         self.noisy_dm = DensityState.from_state(self.initial_state)
@@ -74,6 +95,10 @@ class Circuit:
     # --- helpers to build full-system unitaries ---
     @staticmethod
     def _full_1q(n: int, q: int, Uq: np.ndarray) -> np.ndarray:
+        """
+        Build the full-system unitary for a 1-qubit gate `Uq` acting on qubit `q`
+        in an `n`-qubit system via Kronecker products.
+        """
         ops = [GATES.I.target_qubit_matrix.copy() for _ in range(n)]
         ops[q] = Uq
         full = np.array([[1]], dtype=complex)
@@ -83,6 +108,12 @@ class Circuit:
 
     @staticmethod
     def _full_2q_ctrl_target(n: int, ctrl: int, tgt: int, target_U: np.ndarray, gate) -> np.ndarray:
+        """
+        Build the full-system controlled operation for a 2-qubit gate.
+
+        Constructs |0><0|_ctrl ⊗ I + |1><1|_ctrl ⊗ U_target on qubit `tgt`,
+        embedded into an `n`-qubit system.
+        """
         # same construction as apply_two_qubit_gate, but returns the full operator
         cz0 = [GATES.I.target_qubit_matrix.copy() for _ in range(n)]
         cz1 = [GATES.I.target_qubit_matrix.copy() for _ in range(n)]
@@ -104,13 +135,6 @@ class Circuit:
         """
         Run the circuit for `n` rounds and save states after each round.
         The 0th snapshot is the initial state before any round.
-
-        Args:
-            n (int): Number of rounds to run. Must be >= 1.
-
-        Returns:
-            states:       np.ndarray of shape (n+1, dim, 1)   — ideal statevectors
-            noisy_states: np.ndarray of shape (n+1, dim, dim) — noisy density matrices
         """
 
         if n < 1:
@@ -135,6 +159,15 @@ class Circuit:
         return states, noisy_states
 
     def simulate_circuit(self, first_round: bool = True, last_round: bool = True):
+        """
+        Simulate a single full pass over all timesteps (one *round*).
+
+        Applies gates to both the ideal statevector and the noisy density matrix.
+        Optional noise channels are applied as follows:
+            - SPAM preparation: before main layers (if `first_round` and present)
+            - Depolarizing/TDC: after each gate (as documented inline)
+            - SPAM measurement: after main layers (if `last_round` and present)
+        """
         n = self.state.num_of_qubits
 
         # --- SPAM preparation as channel on noisy DM (optional) ---
@@ -231,6 +264,9 @@ class Circuit:
         self.noisy_dm.normalize_dm()
 
     def check_gate_validity(self, g: CircuitGate):
+        """
+        Validate that the gate's qubit indices are within range and consistent.
+        """
         max_qubit_val = g.target_qubit
         if g.control_qubit is not None:
             max_qubit_val = np.max([g.target_qubit, g.control_qubit])
@@ -249,6 +285,9 @@ class Circuit:
 
     @staticmethod
     def apply_one_qubit_gate(state: State, g: CircuitGate, target_qubit_matrix: np.ndarray):
+        """
+        Apply a single-qubit operation to the ideal statevector.
+        """
         gates = [GATES.I.target_qubit_matrix.copy() for _ in range(state.num_of_qubits)]
         gates[g.target_qubit] = target_qubit_matrix
         circuit_gate = np.array([[1]], dtype=complex)
@@ -258,6 +297,13 @@ class Circuit:
 
     @staticmethod
     def apply_two_qubit_gate(state: State, g: CircuitGate, target_qubit_matrix: np.ndarray):
+        """
+        Apply a controlled two-qubit operation to the ideal statevector.
+
+        Builds the block-controlled unitary
+            |0><0|_ctrl ⊗ I + |1><1|_ctrl ⊗ U_target
+        embedded into the full system, then left-multiplies `state.qubit_vector`.
+        """
         control_zero_gates = [GATES.I.target_qubit_matrix.copy() for _ in range(state.num_of_qubits)]
         control_one_gates = [GATES.I.target_qubit_matrix.copy() for _ in range(state.num_of_qubits)]
 
