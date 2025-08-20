@@ -223,7 +223,8 @@ class TDCNoise:
         Equilibrium excited-state population:
             w_e = 1 / (1 + exp(h f / (k_B T)))
         """
-        x = (h * freq_hz) / (k * max(temp_K, 1e-12))  # guard T→0
+        T_eff = max(temp_K, 1e-12)  # guard T→0
+        x = (h * freq_hz) / (k * T_eff)
         try:
             return 1.0 / (1.0 + np.exp(x))
         except OverflowError:
@@ -291,4 +292,3 @@ class TDCNoise:
                 K = (np.sqrt(sv) * col).reshape(2, 2)
                 kraus_ops.append(K)
         return kraus_ops
-

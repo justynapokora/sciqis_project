@@ -6,14 +6,14 @@ def sample_theta(rng):
     return rng.uniform(0.0, 2.0 * np.pi)
 
 
-def random_pairs(rng, n: int) -> tuple[list[tuple[int, int]], int]:
+def random_pairs(rng, n: int) -> tuple:
     """
     For n qubits, return ~2 partners for each qubit in one layer.
     - For even n: each qubit gets exactly 2 different partners.
     - For odd n: one qubit will be left out.
     """
     if n <= 1:
-        return []
+        return [], None
 
     perm = list(rng.permutation(n))
     pairs = [(int(perm[i]), int(perm[i + 1])) for i in range(0, n - 1, 2)]
@@ -22,7 +22,6 @@ def random_pairs(rng, n: int) -> tuple[list[tuple[int, int]], int]:
     if n % 2 == 1:
         leftover = int(perm[-1])
 
-    # print(pairs, leftover)
     return pairs, leftover
 
 

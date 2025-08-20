@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import copy
-from scipy.constants import h, k as kB  # Planck and Boltzmann constants
 
 from utils.gates import CircuitGate, GATES, PARAMETRISED_GATE_SET
 from utils.states import State, DensityState
@@ -127,31 +126,16 @@ class Circuit:
         states[0, :, :] = self.state.qubit_vector
         noisy_states[0, :, :] = self.noisy_dm.rho
 
-        # First round (with SPAM prep)
-        self.simulate_circuit(first_round=True, last_round=(n == 1))
-        states[1, :, :] = self.state.qubit_vector
-        noisy_states[1, :, :] = self.noisy_dm.rho
-
-        # Middle rounds (no first/last)
-        for i in range(2, n):
-            self.simulate_circuit(first_round=False, last_round=False)
-            states[i, :, :] = self.state.qubit_vector
-            noisy_states[i, :, :] = self.noisy_dm.rho
-
-        # Final round (no first, but with last-round SPAM meas)
-        if n > 1:
-            self.simulate_circuit(first_round=False, last_round=True)
-            states[n, :, :] = self.state.qubit_vector
-            noisy_states[n, :, :] = self.noisy_dm.rho
+        # Unified loop: first_round for k==1, last_round for k==n
+        for k in range(1, n + 1):
+            self.simulate_circuit(first_round=(k == 1), last_round=(k == n))
+            states[k, :, :] = self.state.qubit_vector
+            noisy_states[k, :, :] = self.noisy_dm.rho
 
         return states, noisy_states
 
     def simulate_circuit(self, first_round: bool = True, last_round: bool = True):
-
         n = self.state.num_of_qubits
-        # print("=== Starting simulation ===")
-        # print(f"Initial state (ideal):  {self.state}")
-        # print(f"Initial state (noisy):  {self.noisy_state}")
 
         # --- SPAM preparation as channel on noisy DM (optional) ---
         if self.spam_noise and first_round:
@@ -163,9 +147,6 @@ class Circuit:
                 for q in range(n):
                     ks = self.tdc_noise.kraus_for("SPAM", q)
                     self.noisy_dm.apply_1q_channel(ks, q)
-
-        # print(f"State (ideal): {self.state}")
-        # print(f"State (noisy): {self.noisy_state}")
 
         # --- main layers ---
         for layer in self.gates:
@@ -266,7 +247,8 @@ class Circuit:
                 f"number of qubits in the state: {self.state.num_of_qubits}"
             )
 
-    def apply_one_qubit_gate(self, state: State, g: CircuitGate, target_qubit_matrix: np.ndarray):
+    @staticmethod
+    def apply_one_qubit_gate(state: State, g: CircuitGate, target_qubit_matrix: np.ndarray):
         gates = [GATES.I.target_qubit_matrix.copy() for _ in range(state.num_of_qubits)]
         gates[g.target_qubit] = target_qubit_matrix
         circuit_gate = np.array([[1]], dtype=complex)

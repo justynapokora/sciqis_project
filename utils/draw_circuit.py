@@ -1,11 +1,8 @@
-import matplotlib
 import matplotlib.pyplot as plt
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter, Instruction
 
 from utils.gates import CircuitGate
-
-# matplotlib.use("Agg")
 
 
 def print_circuit_gates_info(circuit_gates: list[list[CircuitGate]]):
@@ -42,8 +39,8 @@ def build_qiskit_circuit(
 
     # visual-only placeholders
     inst_SPAM = Instruction(name="SPAM", num_qubits=1, num_clbits=0, params=[])
-    inst_DC = Instruction(name="DC",   num_qubits=1, num_clbits=0, params=[])
-    inst_TDC = Instruction(name="TDC",  num_qubits=1, num_clbits=0, params=[])
+    inst_DC = Instruction(name="DC", num_qubits=1, num_clbits=0, params=[])
+    inst_TDC = Instruction(name="TDC", num_qubits=1, num_clbits=0, params=[])
 
     # --- pre-circuit: SPAM, and RDC only if SPAM exists (no TDC at time 0 by itself)
     pre_noise_inserted = False
@@ -123,9 +120,9 @@ def build_qiskit_circuit(
                     #     # symmetric: DC on both
                     #     dc_targets.update([c, t])
                     # else:
-                        # asymmetric: DC only on target; add I on control for alignment
+                    # asymmetric: DC only on target; add I on control for alignment
                     dc_targets.add(t)
-                        # twoq_controls_needing_I.add(c)
+                    # twoq_controls_needing_I.add(c)
 
         # 2) DC (and alignment I for asymmetric 2q)
         if depolarizing_noise:
@@ -157,13 +154,13 @@ def get_circuit_plot(
         num_qubits: int,
         depolarizing_noise=False,
         spam_noise=False,
-        tdc_noise=False
+        tdc_noise=False,
+        plot_barriers=True
 ):
-
     qc = build_qiskit_circuit(circuit_gates, num_qubits, depolarizing_noise, spam_noise, tdc_noise)
     fig = qc.draw(
         output="mpl",  # returns a Matplotlib Figure
-        plot_barriers=True,
+        plot_barriers=plot_barriers,
         style="bw",
         initial_state=True
     )
@@ -176,14 +173,15 @@ def save_circuit_drawing(
         filepath: str,
         depolarizing_noise=False,
         spam_noise=False,
-        tdc_noise=False
+        tdc_noise=False,
+        plot_barriers=True
 ):
     qc = build_qiskit_circuit(circuit_gates, num_qubits, depolarizing_noise, spam_noise, tdc_noise)
 
     # Draw with Matplotlib and save
     fig = qc.draw(
         output="mpl",  # returns a Matplotlib Figure
-        plot_barriers=True,
+        plot_barriers=plot_barriers,
         style="bw",
         initial_state=True
     )

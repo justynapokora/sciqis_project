@@ -47,48 +47,16 @@ class State:
 
         return " + ".join(terms) if terms else "0"
 
-    # ---------- core helpers ----------
-    @staticmethod
-    def _oneq_basis_op(basis_char: str) -> np.ndarray:
-        """Single-qubit unitary that maps a B-basis measurement to Z-basis measurement."""
-        b = basis_char.upper()
-        I = np.eye(2, dtype=complex)
-        H = GATES.H.target_qubit_matrix
-        S = GATES.S.target_qubit_matrix
-        Sdg = S.conj().T
-        if b == "Z":
-            return I
-        if b == "X":
-            return H
-        if b == "Y":
-            return H @ Sdg
-        raise ValueError(f"Unknown basis '{basis_char}'. Use 'X', 'Y', or 'Z'.")
-
     def _full_basis_op(self, basis: str) -> np.ndarray:
         """⊗ over all qubits of the per-qubit mapping for a uniform basis ('X','Y','Z')."""
         if len(basis) != 1:
             raise ValueError("Only uniform bases supported here: basis must be one of 'X','Y','Z'.")
-        Uq = self._oneq_basis_op(basis)
+        Uq = _oneq_basis_op(basis)
         ops = [Uq for _ in range(self.num_of_qubits)]
         U = np.array([[1]], dtype=complex)
         for op in ops:
             U = np.kron(op, U)
         return U
-
-    def _label_bits(self, index: int, basis: str) -> str:
-        """Map computational index → per-qubit label string in the requested basis."""
-        b = basis.upper()
-        bits = format(index, f'0{self.num_of_qubits}b')
-        if b == "Z":
-            # '0'/'1'
-            return bits
-        if b == "X":
-            # '+' for '0', '-' for '1'
-            return "".join("+" if c == "0" else "-" for c in bits)
-        if b == "Y":
-            # '+i' for '0', '-i' for '1'
-            return "".join("+i" if c == "0" else "-i" for c in bits)
-        raise ValueError(f"Unknown basis '{basis}'.")
 
     # ---------- dictionaries ----------
     def get_probabilities_dict(self, basis: str = "Z") -> dict[str, float]:
@@ -102,10 +70,13 @@ class State:
         # Map to Z-basis by applying the appropriate unitary, then square amplitudes
         U = self._full_basis_op(b)
         psi_prime = (U @ self.qubit_vector).ravel()
-        probs = {}
-        for i, amp in enumerate(psi_prime):
-            probs[self._label_bits(i, b)] = float(abs(amp) ** 2)
-        return probs
+        probs = np.abs(psi_prime) ** 2
+        s = probs.sum()
+        if s > 0:
+            probs = probs / s  # guard tiny drift
+
+        labels = [_label_bits(self.num_of_qubits, i, b) for i in range(psi_prime.size)]
+        return dict(zip(labels, probs.astype(float)))
 
     # ---------- pretty-printers ----------
     def get_probabilities_str(self, print_zero_probabilities: bool = False, basis: str = "Z") -> str:
@@ -130,7 +101,7 @@ class State:
 
         # Flatten to 1D and compute probabilities
         flat = self.qubit_vector.ravel()
-        probs = np.abs(flat)**2
+        probs = np.abs(flat) ** 2
 
         basis_states = [
             format(i, f'0{self.num_of_qubits}b')
@@ -186,6 +157,7 @@ class DensityState:
       - normalize_dm()
       - pretty printing of populations (optional)
     """
+
     def __init__(self, rho: np.ndarray):
         rho = np.asarray(rho, dtype=complex)
         if rho.ndim != 2 or rho.shape[0] != rho.shape[1]:
@@ -279,9 +251,11 @@ class DensityState:
     def apply_1q_channel(self, kraus_list: list[np.ndarray], q: int):
         # ρ ← Σ K ρ K†
         accum = np.zeros_like(self.rho, dtype=complex)
-        for K1 in kraus_list:
-            K = self._lift_1q_op(K1, q)
+
+        Ks = [self._lift_1q_op(K1, q) for K1 in kraus_list]
+        for K in Ks:
             accum += K @ self.rho @ K.conj().T
+
         self.rho = accum
 
     def normalize_dm(self):
@@ -291,45 +265,16 @@ class DensityState:
         if tr != 0:
             self.rho /= tr
 
-    # ---------- core helpers ----------
-    @staticmethod
-    def _oneq_basis_op(basis_char: str) -> np.ndarray:
-        """Single-qubit unitary that maps a B-basis measurement to Z-basis measurement."""
-        b = basis_char.upper()
-        I = np.eye(2, dtype=complex)
-        H = GATES.H.target_qubit_matrix
-        S = GATES.S.target_qubit_matrix
-        Sdg = S.conj().T
-        if b == "Z":
-            return I
-        if b == "X":
-            return H
-        if b == "Y":
-            return H @ Sdg
-        raise ValueError(f"Unknown basis '{basis_char}'. Use 'X', 'Y', or 'Z'.")
-
     def _full_basis_op(self, basis: str) -> np.ndarray:
         """⊗ over all qubits of the per-qubit mapping for a uniform basis ('X','Y','Z')."""
         if len(basis) != 1:
             raise ValueError("Only uniform bases supported: 'X', 'Y', or 'Z'.")
-        Uq = self._oneq_basis_op(basis)
+        Uq = _oneq_basis_op(basis)
         ops = [Uq for _ in range(self.num_of_qubits)]
         U = np.array([[1]], dtype=complex)
         for op in ops:
             U = np.kron(op, U)
         return U
-
-    def _label_bits(self, index: int, basis: str) -> str:
-        """Map computational index → per-qubit label string in the requested basis."""
-        b = basis.upper()
-        bits = format(index, f'0{self.num_of_qubits}b')
-        if b == "Z":
-            return bits  # '0'/'1'
-        if b == "X":
-            return "".join("+" if c == "0" else "-" for c in bits)  # +/-
-        if b == "Y":
-            return "".join("+i" if c == "0" else "-i" for c in bits)  # +i/-i
-        raise ValueError(f"Unknown basis '{basis}'.")
 
     # ---------- dictionaries ----------
     def get_probabilities_dict(self, basis: str = "Z") -> dict[str, float]:
@@ -347,7 +292,7 @@ class DensityState:
 
         probs = {}
         for i, p in enumerate(pops):
-            probs[self._label_bits(i, b)] = float(p)
+            probs[_label_bits(self.num_of_qubits, i, b)] = float(p)
         return probs
 
     # ---------- pretty-printer ---------
@@ -381,6 +326,36 @@ class DensityState:
         return rng.choice(basis_states, size=num_of_measurements, p=pops)
 
 
+## functions common for state and density state
+def _oneq_basis_op(basis_char: str) -> np.ndarray:
+    """Single-qubit unitary that maps a B-basis measurement to Z-basis measurement."""
+    b = basis_char.upper()
+    I = np.eye(2, dtype=complex)
+    H = GATES.H.target_qubit_matrix
+    S = GATES.S.target_qubit_matrix
+    Sdg = S.conj().T
+    if b == "Z":
+        return I
+    if b == "X":
+        return H
+    if b == "Y":
+        return H @ Sdg
+    raise ValueError(f"Unknown basis '{basis_char}'. Use 'X', 'Y', or 'Z'.")
+
+
+def _label_bits(num_of_qubits: int, index: int, basis: str) -> str:
+    """Map computational index → per-qubit label string in the requested basis."""
+    b = basis.upper()
+    bits = format(index, f'0{num_of_qubits}b')
+    if b == "Z":
+        return bits  # '0'/'1'
+    if b == "X":
+        return "".join("+" if c == "0" else "-" for c in bits)  # +/-
+    if b == "Y":
+        return "".join("+i" if c == "0" else "-i" for c in bits)  # +i/-i
+    raise ValueError(f"Unknown basis '{basis}'.")
+
+
 class States:
     def __init__(self):
         sqrt2_inv = 1 / np.sqrt(2)
@@ -404,7 +379,7 @@ class States:
         if n <= 0:
             raise ValueError("n must be >= 0")
 
-        qubit_vector = np.zeros((2**n, 1), dtype=complex)
+        qubit_vector = np.zeros((2 ** n, 1), dtype=complex)
         qubit_vector[0, 0] = 1.0
         return State(qubit_vector)
 
