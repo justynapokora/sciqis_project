@@ -4,7 +4,7 @@ import matplotlib.patheffects as pe
 from ipywidgets import interact, IntSlider
 
 from utils.circuit_metrics import haar_fidelity_pdf, haar_bin_masses, pairwise_fidelities_consecutive, \
-    pairwise_uhlmann_fidelities_consecutive, frame_potentials_from_samples
+    pairwise_uhlmann_fidelities_consecutive
 
 
 # ---------- Fidelity ----------
@@ -463,55 +463,6 @@ def plot_fidelity_histograms_vs_haar(states: np.ndarray,
     plt.show()
 
     return KLs_ideal, KLs_noisy, bin_edges
-
-
-# ---------- Frame potentials ----------
-def plot_frame_potentials(states: np.ndarray,
-                          noisy_states: np.ndarray | None = None,
-                          circuit_labels: list[str] | None = None,
-                          t_max: int = 4):
-    """
-    Plot frame potentials (moments 1..t_max) per circuit, showing:
-      - ideal (pure) estimates,
-      - noisy (mixed, via Uhlmann) estimates if provided,
-      - Haar (Welch bound) reference.
-    """
-    FP_ideal, FP_noisy, FP_haar = frame_potentials_from_samples(states, noisy_states, t_max=t_max)
-
-    C = FP_ideal.shape[0]
-    if circuit_labels is None:
-        circuit_labels = [f"Circuit {i + 1}" for i in range(C)]
-
-    # Layout: one column per circuit
-    x = np.arange(1, t_max + 1)
-    fig, axes = plt.subplots(1, C, figsize=(4.6 * C, 3.6), squeeze=False)
-    axes = axes[0]
-
-    for c in range(C):
-        ax = axes[c]
-        ax.plot(x, FP_ideal[c], marker='o', linestyle='-', label='ideal')
-        if FP_noisy is not None:
-            ax.plot(x, FP_noisy[c], marker='s', linestyle='--', label='noisy')
-
-        # Haar baseline (same for all circuits of same dim)
-        ax.plot(x, FP_haar, linestyle=':', color='purple', label='Haar')
-
-        ax.set_xticks(x)
-        ax.set_xlabel("moment $t$")
-        ax.set_title(circuit_labels[c])
-        ax.grid(True, alpha=0.3)
-
-        # Y label on the first subplot
-        if c == 0:
-            ax.set_ylabel(r"frame potential $\mathcal{F}^{(t)}=\mathbb{E}[F^t]$")
-
-        # Only show a legend on the first subplot to save space
-        if c == 0:
-            ax.legend()
-
-    fig.suptitle("Frame potentials (moments 1–4) per circuit", fontsize=14)
-    plt.tight_layout()
-    plt.show()
 
 
 # ---------- Expressibility and entangling capability  ----------

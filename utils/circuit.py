@@ -18,7 +18,7 @@ class Circuit:
     `resolve_parameters` on initialization and whenever the circuit is reset.
 
     Noise model support:
-        - DepolarizingNoise (per gate/qubit as used in the paper)
+        - DepolarizingNoise (per gate/qubit)
         - SPAMNoise (preparation/measurement channels)
         - TDCNoise (time-dependent channel, applied after gates or SPAM steps)
     """

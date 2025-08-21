@@ -98,39 +98,6 @@ def pairwise_uhlmann_fidelities_consecutive(rhos_1c: np.ndarray) -> np.ndarray:
     return out
 
 
-# ---------- frame potentials ----------
-def frame_potentials_from_samples(states: np.ndarray,
-                                  noisy_states: np.ndarray | None = None,
-                                  t_max: int = 4) -> tuple[np.ndarray, np.ndarray | None, np.ndarray]:
-    """Estimate frame potentials F^{(t)}=E[F^t] for t=1..t_max (ideal, optional noisy, and Haar baseline)."""
-    C, S, dim = states.shape[0], states.shape[1], states.shape[2]
-    # Pairwise fidelities for each circuit (consecutive pairs)
-    fids_pure = [pairwise_fidelities_consecutive(states[c].reshape(S, dim)) for c in range(C)]
-
-    # vector of moments 1..t_max
-    tvec = np.arange(1, t_max + 1, dtype=int)
-
-    FP_ideal = np.zeros((C, t_max), dtype=float)
-    for c in range(C):
-        f = fids_pure[c]
-        # shape (len(f), t_max) → mean over samples
-        FP_ideal[c, :] = np.mean(f[:, None] ** tvec[None, :], axis=0)
-
-    FP_noisy = None
-    if noisy_states is not None:
-        FP_noisy = np.zeros((C, t_max), dtype=float)
-        for c in range(C):
-            f_mixed = pairwise_uhlmann_fidelities_consecutive(noisy_states[c])
-            FP_noisy[c, :] = np.mean(f_mixed[:, None] ** tvec[None, :], axis=0)
-
-    # Haar baseline: F_Haar^{(t)} = t!(N-1)! / (t+N-1)!  where N=dim
-    N = dim
-    FP_haar = np.array([math.factorial(t) * math.factorial(N - 1) / math.factorial(t + N - 1)
-                        for t in range(1, t_max + 1)], dtype=float)
-
-    return FP_ideal, FP_noisy, FP_haar
-
-
 # compressibility
 def kl_expressibility_one_circuit(states_1c: np.ndarray,
                                   noisy_states_1c: np.ndarray | None = None,
