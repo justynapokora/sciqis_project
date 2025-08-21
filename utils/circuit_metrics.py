@@ -98,64 +98,6 @@ def pairwise_uhlmann_fidelities_consecutive(rhos_1c: np.ndarray) -> np.ndarray:
     return out
 
 
-# --- entropy ---
-def von_neumann_entropy(state: State | DensityState, atol: float = 1e-12) -> float:
-    """Von Neumann entropy S(ρ) = −Tr(ρ log₂ ρ) in bits."""
-    # --- Build density matrix ρ ---
-    if isinstance(state, DensityState):
-        rho = np.asarray(state.rho, dtype=complex)
-    elif isinstance(state, State):
-        return 0.0
-    else:
-        raise TypeError("Expected a State or DensityState.")
-
-    # --- Numerical  ---
-    rho = 0.5 * (rho + rho.conj().T)  # enforce Hermiticity
-    tr = np.trace(rho)
-    if tr == 0:
-        return 0.0
-    rho = rho / tr  # normalize trace to 1
-
-    # --- Eigenvalues ---
-    evals = np.linalg.eigvalsh(rho).real
-    evals = np.clip(evals, 0.0, None)  # clip tiny negatives
-    s = evals.sum()
-    if s > 0:
-        evals = evals / s  # renormalize
-
-    # --- Entropy in bits ---
-    nonzero = evals > atol
-    if not np.any(nonzero):
-        return 0.0
-    return float(-np.sum(evals[nonzero] * np.log2(evals[nonzero])))
-
-
-def entropy_density_matrix(rho, atol):
-    """Helper: von Neumann entropy (bits) for a single density matrix."""
-    rho = 0.5 * (rho + rho.conj().T)
-    rho = rho / np.trace(rho)
-    evals = np.linalg.eigvalsh(rho).real
-    evals = np.clip(evals, 0.0, None)
-    if evals.sum() > 0:
-        evals = evals / evals.sum()
-    mask = evals > atol
-    return -np.sum(evals[mask] * np.log2(evals[mask]))
-
-
-def von_neumann_entropies_arrays(states: np.ndarray, noisy_states: np.ndarray, atol: float = 1e-12) -> tuple[
-    np.ndarray, np.ndarray]:
-    """Vectorized entropies: zeros for pure states and S(ρ) for noisy density matrices."""
-    n_plus_1 = states.shape[0]
-
-    # --- Pure states → always 0 entropy ---
-    entropies_states = np.zeros(n_plus_1, dtype=float)
-
-    # Apply entropy computation along the 0th axis (batch of matrices)
-    entropies_noisy = np.array([entropy_density_matrix(rho, atol) for rho in noisy_states])
-
-    return entropies_states, entropies_noisy
-
-
 # ---------- frame potentials ----------
 def frame_potentials_from_samples(states: np.ndarray,
                                   noisy_states: np.ndarray | None = None,

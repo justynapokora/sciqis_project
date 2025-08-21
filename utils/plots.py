@@ -7,40 +7,22 @@ from utils.circuit_metrics import haar_fidelity_pdf, haar_bin_masses, pairwise_f
     pairwise_uhlmann_fidelities_consecutive, frame_potentials_from_samples
 
 
-# ---------- Fidelity and entropy ----------
-def plot_fidelity_and_entropy(fidelities: np.ndarray,
-                              entropies_states: np.ndarray,
-                              entropies_noisy: np.ndarray,
-                              n_rounds: int,
-                              num_of_qubits: int):
+# ---------- Fidelity ----------
+def plot_fidelity(fidelities: np.ndarray,
+                  n_rounds: int):
     """
-    Plot fidelities and entropies across circuit rounds.
+    Plot fidelities across circuit rounds.
     """
-    rounds = np.arange(n_rounds + 1)  # 0..n (including initial)
-    max_entropy = num_of_qubits  # in bits
+    rounds = np.arange(n_rounds + 1)
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-
-    # --- Left: Fidelity ---
-    axes[0].plot(rounds, fidelities, label="Fidelity", color="tab:blue")
-    axes[0].set_xlabel("Round")
-    axes[0].set_ylabel("Fidelity")
-    axes[0].set_title("Fidelity vs Rounds")
-    axes[0].set_ylim(0, 1.05)
-    axes[0].grid(True)
-
-    # --- Right: Entropy ---
-    axes[1].plot(rounds, entropies_states, label="Ideal (pure)", color="tab:green", linestyle="--")
-    axes[1].plot(rounds, entropies_noisy, label="Noisy", color="tab:red")
-    axes[1].axhline(max_entropy, color="tab:gray", linestyle=":", label=f"Max entropy ({max_entropy} bits)")
-    axes[1].set_xlabel("Round")
-    axes[1].set_ylabel("Entropy (bits)")
-    axes[1].set_title("Von Neumann Entropy vs Rounds")
-    axes[1].set_ylim(0, max_entropy + 0.05)
-    axes[1].grid(True)
-    axes[1].legend()
-
-    fig.suptitle("Circuit Performance over Rounds", fontsize=14)
+    plt.figure(figsize=(8, 5))
+    plt.plot(rounds, fidelities, marker='o', label="Fidelity")
+    plt.xlabel("Round")
+    plt.ylabel("Fidelity")
+    plt.title("Fidelity vs Rounds")
+    plt.ylim(0, 1.05)
+    plt.grid(True, alpha=0.4)
+    plt.legend()
     plt.tight_layout()
     plt.show()
 
@@ -60,38 +42,6 @@ def plot_fidelities_by_noise(fidelities_by_noise: dict[str, np.ndarray],
     plt.ylabel("Fidelity")
     plt.title(title)
     plt.ylim(0, 1.05)
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-
-def plot_entropies_by_noise(entropies_noisy_by_noise: dict[str, np.ndarray],
-                            n_rounds: int,
-                            num_of_qubits: int,
-                            title: str = "Von Neumann Entropy vs Rounds"):
-    """
-    Plot entropies (one curve per noise type) on a single figure,
-    including ideal baseline (0) and maximal entropy line.
-    """
-    rounds = np.arange(n_rounds + 1)
-    max_entropy = num_of_qubits  # in bits
-
-    plt.figure(figsize=(8, 5))
-    for label, ents in entropies_noisy_by_noise.items():
-        plt.plot(rounds, ents, label=label)
-
-    # Add ideal entropy baseline (always zero)
-    plt.axhline(0, color="black", linestyle="--", linewidth=1, label="ideal (pure)")
-
-    # Add maximal entropy line
-    plt.axhline(max_entropy, color="gray", linestyle=":", linewidth=1.2,
-                label=f"max entropy ({max_entropy} bits)")
-
-    plt.xlabel("Round")
-    plt.ylabel("Entropy (bits)")
-    plt.title(title)
-    plt.ylim(0, max_entropy + 0.05)
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
